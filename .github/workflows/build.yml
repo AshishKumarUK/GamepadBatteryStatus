@@ -13,10 +13,12 @@ jobs:
     steps:
     - uses: actions/checkout@v4
     
-    - name: Setup .NET 6
+    - name: Setup .NET SDKs
       uses: actions/setup-dotnet@v4
       with:
-        dotnet-version: '6.0.x'
+        dotnet-version: |
+          8.0.x
+          6.0.x
     
     - name: Install .NET Framework 4.6.2 Developer Pack
       run: choco install netfx-4.6.2-devpack -y
@@ -27,7 +29,7 @@ jobs:
         Write-Host "Project structure:"
         Get-ChildItem -Recurse -Name | Where-Object { $_ -notlike "*\.git\*" } | Sort-Object
     
-    - name: Build Helper (framework-dependent, small size)
+    - name: Build Helper (framework-dependent, net8.0)
       run: dotnet build Helper -c Release --verbosity normal
       continue-on-error: false
     
@@ -48,7 +50,7 @@ jobs:
           exit 1
         }
         
-        $helperBase = "Helper\bin\Release\net6.0\DualSenseBatteryHelper"
+        $helperBase = "Helper\bin\Release\net8.0\DualSenseBatteryHelper"
         $helperFiles = @(
           "$helperBase.exe",
           "$helperBase.dll",
@@ -72,11 +74,11 @@ jobs:
         Copy-Item "Plugin\bin\Release\net462\DualSenseBattery.dll" "$pluginDir\"
         Copy-Item "Plugin\extension.yaml" "$pluginDir\"
         
-        # Copy helper files (framework-dependent minimal set)
-        Copy-Item "Helper\bin\Release\net6.0\DualSenseBatteryHelper.exe" "$pluginDir\Helper\"
-        Copy-Item "Helper\bin\Release\net6.0\DualSenseBatteryHelper.dll" "$pluginDir\Helper\"
-        Copy-Item "Helper\bin\Release\net6.0\DualSenseBatteryHelper.runtimeconfig.json" "$pluginDir\Helper\"
-        Copy-Item "Helper\bin\Release\net6.0\DualSenseBatteryHelper.deps.json" "$pluginDir\Helper\"
+        # Copy helper files (framework-dependent minimal set for net8.0)
+        Copy-Item "Helper\bin\Release\net8.0\DualSenseBatteryHelper.exe" "$pluginDir\Helper\"
+        Copy-Item "Helper\bin\Release\net8.0\DualSenseBatteryHelper.dll" "$pluginDir\Helper\"
+        Copy-Item "Helper\bin\Release\net8.0\DualSenseBatteryHelper.runtimeconfig.json" "$pluginDir\Helper\"
+        Copy-Item "Helper\bin\Release\net8.0\DualSenseBatteryHelper.deps.json" "$pluginDir\Helper\"
         
         # Verify package contents (pre-zip)
         Write-Host "Package contents (pre-zip):"
