@@ -27,8 +27,8 @@ jobs:
         Write-Host "Project structure:"
         Get-ChildItem -Recurse -Name | Where-Object { $_ -notlike "*\.git\*" } | Sort-Object
     
-    - name: Build Helper (Publish self-contained)
-      run: dotnet publish Helper -c Release -r win-x64 --self-contained true /p:PublishSingleFile=true /p:IncludeNativeLibrariesForSelfExtract=true
+    - name: Build Helper (framework-dependent, small size)
+      run: dotnet build Helper -c Release --verbosity normal
       continue-on-error: false
     
     - name: Build Plugin
@@ -39,34 +39,32 @@ jobs:
       shell: pwsh
       run: |
         Write-Host "Checking build outputs..."
-        Write-Host "Plugin directory contents:"
-        Get-ChildItem "Plugin\" -Recurse | ForEach-Object { Write-Host "  - $($_.FullName)" }
         
         if (Test-Path "Plugin\bin\Release\net462\DualSenseBattery.dll") {
           Write-Host "✅ Plugin DLL found"
-          Get-ChildItem "Plugin\bin\Release\net462\" | ForEach-Object { Write-Host "  - $($_.Name)" }
         } else {
           Write-Host "❌ Plugin DLL not found!"
-          Write-Host "Checking for any build artifacts:"
           Get-ChildItem "Plugin\bin\" -Recurse -ErrorAction SilentlyContinue | ForEach-Object { Write-Host "  - $($_.FullName)" }
           exit 1
         }
         
-        $helperPub = "Helper\bin\Release\net6.0\win-x64\publish\DualSenseBatteryHelper.exe"
-        if (Test-Path $helperPub) {
-          Write-Host "✅ Helper EXE (self-contained) found at: $helperPub"
-        } else {
-          Write-Host "❌ Helper EXE not found at publish output!"
-          Get-ChildItem "Helper\bin\Release\" -Recurse | ForEach-Object { Write-Host "  - $($_.FullName)" }
-          exit 1
-        }
+        $helperBase = "Helper\bin\Release\net6.0\DualSenseBatteryHelper"
+        $helperFiles = @(
+          "$helperBase.exe",
+          "$helperBase.dll",
+          "$helperBase.runtimeconfig.json",
+          "$helperBase.deps.json"
+        )
+        $missing = $false
+        foreach ($f in $helperFiles) { if (-not (Test-Path $f)) { Write-Host "❌ Missing: $f"; $missing = $true } else { Write-Host "✅ Found: $f" } }
+        if ($missing) { Write-Host "Helper build outputs missing required files."; exit 1 }
     
     - name: Create Plugin Package
       shell: pwsh
       run: |
         Write-Host "Creating plugin package..."
         
-        # Prepare plugin directory content (matches expected archive root contents)
+        # Prepare plugin directory content (expected archive root contents)
         $pluginDir = "DualSenseBattery_fbd2c2e6-9c1b-49b6-9c0d-1c5d3c0a9a6a"
         New-Item -ItemType Directory -Force -Path "$pluginDir\Helper" | Out-Null
         
@@ -74,8 +72,11 @@ jobs:
         Copy-Item "Plugin\bin\Release\net462\DualSenseBattery.dll" "$pluginDir\"
         Copy-Item "Plugin\extension.yaml" "$pluginDir\"
         
-        # Copy helper files (self-contained publish output)
-        Copy-Item "Helper\bin\Release\net6.0\win-x64\publish\DualSenseBatteryHelper.exe" "$pluginDir\Helper\"
+        # Copy helper files (framework-dependent minimal set)
+        Copy-Item "Helper\bin\Release\net6.0\DualSenseBatteryHelper.exe" "$pluginDir\Helper\"
+        Copy-Item "Helper\bin\Release\net6.0\DualSenseBatteryHelper.dll" "$pluginDir\Helper\"
+        Copy-Item "Helper\bin\Release\net6.0\DualSenseBatteryHelper.runtimeconfig.json" "$pluginDir\Helper\"
+        Copy-Item "Helper\bin\Release\net6.0\DualSenseBatteryHelper.deps.json" "$pluginDir\Helper\"
         
         # Verify package contents (pre-zip)
         Write-Host "Package contents (pre-zip):"
