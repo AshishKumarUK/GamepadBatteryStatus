@@ -1,6 +1,8 @@
 Id: DualSenseBattery_fbd2c2e6-9c1b-49b6-9c0d-1c5d3c0a9a6a
-Name: DualSense Battery
-Author: You
+Name: DualSense Battery Status
+Author: AshishKumarUK
 Version: 1.0.0
 Module: DualSenseBattery.dll
 Type: GenericPlugin
+Icon: 
+Description: Display PS5 DualSense controller battery status in Playnite. Features automatic system battery replacement for desktop PCs and highly optimized performance with fast initial connection detection.

@@ -65,25 +65,34 @@ jobs:
       run: |
         Write-Host "Creating plugin package..."
         
-        # Create plugin directory structure
-        New-Item -ItemType Directory -Force -Path "DualSenseBattery\Helper" | Out-Null
+        # Create plugin directory structure with correct naming
+        $pluginDir = "DualSenseBattery_fbd2c2e6-9c1b-49b6-9c0d-1c5d3c0a9a6a"
+        New-Item -ItemType Directory -Force -Path "$pluginDir\Helper" | Out-Null
         
         # Copy plugin files
-        Copy-Item "Plugin\bin\Release\net462\DualSenseBattery.dll" "DualSenseBattery\"
-        Copy-Item "Plugin\extension.yaml" "DualSenseBattery\"
+        Copy-Item "Plugin\bin\Release\net462\DualSenseBattery.dll" "$pluginDir\"
+        Copy-Item "Plugin\extension.yaml" "$pluginDir\"
         
         # Copy helper files
-        Copy-Item "Helper\bin\Release\net6.0\DualSenseBatteryHelper.exe" "DualSenseBattery\Helper\"
+        Copy-Item "Helper\bin\Release\net6.0\DualSenseBatteryHelper.exe" "$pluginDir\Helper\"
+        
+        # Copy any additional dependencies if they exist
+        if (Test-Path "Plugin\bin\Release\net462\*.dll") {
+          Get-ChildItem "Plugin\bin\Release\net462\*.dll" | Where-Object { $_.Name -ne "DualSenseBattery.dll" } | ForEach-Object {
+            Copy-Item $_.FullName "$pluginDir\"
+            Write-Host "Copied dependency: $($_.Name)"
+          }
+        }
         
         # Verify package contents
         Write-Host "Package contents:"
-        Get-ChildItem "DualSenseBattery\" -Recurse | ForEach-Object { Write-Host "  - $($_.FullName)" }
+        Get-ChildItem "$pluginDir\" -Recurse | ForEach-Object { Write-Host "  - $($_.FullName)" }
         
-        # Create .pext file
-        Compress-Archive -Path "DualSenseBattery" -DestinationPath "DualSenseBattery.zip"
-        Rename-Item "DualSenseBattery.zip" "DualSenseBattery.pext"
+        # Create .pext file (zip with .pext extension)
+        Compress-Archive -Path "$pluginDir" -DestinationPath "DualSenseBattery.pext" -Force
         
         Write-Host "✅ Plugin package created successfully"
+        Write-Host "Package size: $((Get-Item 'DualSenseBattery.pext').Length) bytes"
     
     - name: Upload Plugin Artifact
       uses: actions/upload-artifact@v4
