@@ -16,9 +16,5 @@
       <SubType>Designer</SubType>
       <Generator>MSBuild:Compile</Generator>
     </Page>
-    <Compile Include="Views\*.xaml.cs">
-      <SubType>Code</SubType>
-      <DependentUpon>%(Filename)</DependentUpon>
-    </Compile>
   </ItemGroup>
 </Project>
