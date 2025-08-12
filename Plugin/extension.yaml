@@ -1,0 +1,6 @@
+Id: DualSenseBattery_fbd2c2e6-9c1b-49b6-9c0d-1c5d3c0a9a6a
+Name: DualSense Battery
+Author: You
+Version: 1.0.0
+Module: DualSenseBattery.dll
+Type: GenericPlugin

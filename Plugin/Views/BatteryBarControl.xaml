@@ -1,0 +1,73 @@
+<playniteControls:PluginUserControl
+    x:Class="DualSenseBattery.Views.BatteryBarControl"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+    xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+    xmlns:playniteControls="clr-namespace:Playnite.SDK.Controls;assembly=Playnite.SDK"
+    mc:Ignorable="d"
+    d:DesignHeight="24" d:DesignWidth="96">
+
+    <!-- Fixed footprint prevents header reflow -->
+    <Grid Height="24"
+          MinWidth="84"
+          MaxWidth="96"
+          SnapsToDevicePixels="True"
+          UseLayoutRounding="True">
+
+        <!-- Hidden until we confirm a good connection -->
+        <Grid x:Name="ContentRoot" Visibility="Collapsed">
+            <StackPanel Orientation="Horizontal"
+                        VerticalAlignment="Center"
+                        HorizontalAlignment="Left"
+                        Margin="0,0,0,0">
+
+                <!-- Battery icon with fill -->
+                <Grid Width="22" Height="11" VerticalAlignment="Center" Margin="0,0,4,0">
+                    <!-- Outline -->
+                    <Border BorderBrush="White"
+                            BorderThickness="1"
+                            CornerRadius="1"
+                            Width="20"
+                            Height="11"
+                            HorizontalAlignment="Left"
+                            VerticalAlignment="Center"/>
+                    <!-- Nub -->
+                    <Rectangle Width="2"
+                               Height="5"
+                               Fill="White"
+                               HorizontalAlignment="Right"
+                               VerticalAlignment="Center"
+                               Margin="0,0,-2,0"/>
+
+                    <!-- Fill bar (resized in code) -->
+                    <Rectangle x:Name="BatteryFill"
+                               Height="7"
+                               Fill="White"
+                               HorizontalAlignment="Left"
+                               VerticalAlignment="Center"
+                               Margin="1.2,0,3.6,0"
+                               RadiusX="1"
+                               RadiusY="1"
+                               Width="0"/>
+                </Grid>
+
+                <!-- Charging bolt -->
+                <TextBlock x:Name="Bolt"
+                           Text="&#x26A1;"
+                           Foreground="Yellow"
+                           FontSize="12"
+                           VerticalAlignment="Center"
+                           Visibility="Collapsed"
+                           Margin="0,0,4,0"/>
+
+                <!-- Percentage -->
+                <TextBlock x:Name="Txt"
+                           Text=""
+                           FontSize="14"
+                           Foreground="White"
+                           VerticalAlignment="Center"/>
+            </StackPanel>
+        </Grid>
+    </Grid>
+</playniteControls:PluginUserControl>

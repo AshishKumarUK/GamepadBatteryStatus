@@ -1,0 +1,51 @@
+name: Build DualSense Battery Plugin
+
+on:
+  push:
+    branches: [ main, master ]
+  pull_request:
+    branches: [ main, master ]
+
+jobs:
+  build:
+    runs-on: windows-latest
+    
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Setup .NET 6
+      uses: actions/setup-dotnet@v4
+      with:
+        dotnet-version: '6.0.x'
+    
+    - name: Install .NET Framework 4.6.2 Developer Pack
+      run: choco install netfx-4.6.2-devpack -y
+    
+    - name: Build Helper
+      run: dotnet build Helper -c Release
+    
+    - name: Build Plugin
+      run: dotnet build Plugin -c Release
+    
+    - name: Create Plugin Package
+      shell: pwsh
+      run: |
+        # Create plugin directory structure
+        New-Item -ItemType Directory -Force -Path "DualSenseBattery\Helper" | Out-Null
+        
+        # Copy plugin files
+        Copy-Item "Plugin\bin\Release\DualSenseBattery.dll" "DualSenseBattery\"
+        Copy-Item "extension.yaml" "DualSenseBattery\"
+        
+        # Copy helper files
+        Copy-Item "Helper\bin\Release\net6.0\DualSenseBatteryHelper.exe" "DualSenseBattery\Helper\"
+        
+        # Create .pext file
+        Compress-Archive -Path "DualSenseBattery" -DestinationPath "DualSenseBattery.zip"
+        Rename-Item "DualSenseBattery.zip" "DualSenseBattery.pext"
+    
+    - name: Upload Plugin Artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: DualSenseBattery
+        path: DualSenseBattery.pext
