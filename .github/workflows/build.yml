@@ -42,9 +42,9 @@ jobs:
         Write-Host "Plugin directory contents:"
         Get-ChildItem "Plugin\" -Recurse | ForEach-Object { Write-Host "  - $($_.FullName)" }
         
-        if (Test-Path "Plugin\bin\Release\DualSenseBattery.dll") {
+        if (Test-Path "Plugin\bin\Release\net462\DualSenseBattery.dll") {
           Write-Host "✅ Plugin DLL found"
-          Get-ChildItem "Plugin\bin\Release\" | ForEach-Object { Write-Host "  - $($_.Name)" }
+          Get-ChildItem "Plugin\bin\Release\net462\" | ForEach-Object { Write-Host "  - $($_.Name)" }
         } else {
           Write-Host "❌ Plugin DLL not found!"
           Write-Host "Checking for any build artifacts:"
@@ -69,7 +69,7 @@ jobs:
         New-Item -ItemType Directory -Force -Path "DualSenseBattery\Helper" | Out-Null
         
         # Copy plugin files
-        Copy-Item "Plugin\bin\Release\DualSenseBattery.dll" "DualSenseBattery\"
+        Copy-Item "Plugin\bin\Release\net462\DualSenseBattery.dll" "DualSenseBattery\"
         Copy-Item "Plugin\extension.yaml" "DualSenseBattery\"
         
         # Copy helper files
