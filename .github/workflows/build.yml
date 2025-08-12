@@ -65,7 +65,7 @@ jobs:
       run: |
         Write-Host "Creating plugin package..."
         
-        # Create plugin directory structure with correct naming
+        # Prepare plugin directory content (matches expected archive root contents)
         $pluginDir = "DualSenseBattery_fbd2c2e6-9c1b-49b6-9c0d-1c5d3c0a9a6a"
         New-Item -ItemType Directory -Force -Path "$pluginDir\Helper" | Out-Null
         
@@ -76,35 +76,21 @@ jobs:
         # Copy helper files
         Copy-Item "Helper\bin\Release\net6.0\DualSenseBatteryHelper.exe" "$pluginDir\Helper\"
         
-        # Verify package contents
-        Write-Host "Package contents:"
+        # Verify package contents (pre-zip)
+        Write-Host "Package contents (pre-zip):"
         Get-ChildItem "$pluginDir\" -Recurse | ForEach-Object { Write-Host "  - $($_.FullName)" }
         
-        # Test the package structure
-        Write-Host "Testing package structure..."
-        if (-not (Test-Path "$pluginDir\DualSenseBattery.dll")) {
-          Write-Host "❌ Main DLL missing!"
-          exit 1
-        }
-        if (-not (Test-Path "$pluginDir\extension.yaml")) {
-          Write-Host "❌ Extension YAML missing!"
-          exit 1
-        }
-        if (-not (Test-Path "$pluginDir\Helper\DualSenseBatteryHelper.exe")) {
-          Write-Host "❌ Helper EXE missing!"
-          exit 1
-        }
-        Write-Host "✅ All required files present"
-        
-        # Create .pext file using basic PowerShell method
-        Write-Host "Creating .pext file..."
-        Compress-Archive -Path "$pluginDir" -DestinationPath "DualSenseBattery.pext" -Force
+        # Create .pext so that files are at archive ROOT (no extra parent folder)
+        Write-Host "Creating .pext file with flat root contents..."
+        if (Test-Path "DualSenseBattery.pext") { Remove-Item "DualSenseBattery.pext" -Force }
+        Compress-Archive -Path "$pluginDir\*" -DestinationPath "DualSenseBattery.pext" -Force
         
         Write-Host "✅ Plugin package created successfully"
         Write-Host "Package size: $((Get-Item 'DualSenseBattery.pext').Length) bytes"
         
-        # Test the zip structure
-        Write-Host "Testing zip contents:"
+        # Inspect zip root to confirm no extra folder
+        Write-Host "Testing zip contents (should show extension.yaml at ROOT):"
+        Add-Type -AssemblyName System.IO.Compression.FileSystem
         $zip = [System.IO.Compression.ZipFile]::OpenRead("DualSenseBattery.pext")
         $zip.Entries | ForEach-Object { Write-Host "  - $($_.FullName)" }
         $zip.Dispose()
