@@ -21,28 +21,69 @@ jobs:
     - name: Install .NET Framework 4.6.2 Developer Pack
       run: choco install netfx-4.6.2-devpack -y
     
+    - name: List Project Files
+      shell: pwsh
+      run: |
+        Write-Host "Project structure:"
+        Get-ChildItem -Recurse -Name | Where-Object { $_ -notlike "*\.git\*" } | Sort-Object
+    
     - name: Build Helper
-      run: dotnet build Helper -c Release
+      run: dotnet build Helper -c Release --verbosity normal
+      continue-on-error: false
     
     - name: Build Plugin
-      run: dotnet build Plugin -c Release
+      run: dotnet build Plugin -c Release --verbosity normal --no-restore
+      continue-on-error: false
+    
+    - name: Verify Build Output
+      shell: pwsh
+      run: |
+        Write-Host "Checking build outputs..."
+        Write-Host "Plugin directory contents:"
+        Get-ChildItem "Plugin\" -Recurse | ForEach-Object { Write-Host "  - $($_.FullName)" }
+        
+        if (Test-Path "Plugin\bin\Release\DualSenseBattery.dll") {
+          Write-Host "✅ Plugin DLL found"
+          Get-ChildItem "Plugin\bin\Release\" | ForEach-Object { Write-Host "  - $($_.Name)" }
+        } else {
+          Write-Host "❌ Plugin DLL not found!"
+          Write-Host "Checking for any build artifacts:"
+          Get-ChildItem "Plugin\bin\" -Recurse -ErrorAction SilentlyContinue | ForEach-Object { Write-Host "  - $($_.FullName)" }
+          exit 1
+        }
+        
+        if (Test-Path "Helper\bin\Release\net6.0\DualSenseBatteryHelper.exe") {
+          Write-Host "✅ Helper EXE found"
+        } else {
+          Write-Host "❌ Helper EXE not found!"
+          Get-ChildItem "Helper\bin\" -Recurse | ForEach-Object { Write-Host "  - $($_.FullName)" }
+          exit 1
+        }
     
     - name: Create Plugin Package
       shell: pwsh
       run: |
+        Write-Host "Creating plugin package..."
+        
         # Create plugin directory structure
         New-Item -ItemType Directory -Force -Path "DualSenseBattery\Helper" | Out-Null
         
         # Copy plugin files
         Copy-Item "Plugin\bin\Release\DualSenseBattery.dll" "DualSenseBattery\"
-        Copy-Item "extension.yaml" "DualSenseBattery\"
+        Copy-Item "Plugin\extension.yaml" "DualSenseBattery\"
         
         # Copy helper files
         Copy-Item "Helper\bin\Release\net6.0\DualSenseBatteryHelper.exe" "DualSenseBattery\Helper\"
         
+        # Verify package contents
+        Write-Host "Package contents:"
+        Get-ChildItem "DualSenseBattery\" -Recurse | ForEach-Object { Write-Host "  - $($_.FullName)" }
+        
         # Create .pext file
         Compress-Archive -Path "DualSenseBattery" -DestinationPath "DualSenseBattery.zip"
         Rename-Item "DualSenseBattery.zip" "DualSenseBattery.pext"
+        
+        Write-Host "✅ Plugin package created successfully"
     
     - name: Upload Plugin Artifact
       uses: actions/upload-artifact@v4
