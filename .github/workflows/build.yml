@@ -76,23 +76,38 @@ jobs:
         # Copy helper files
         Copy-Item "Helper\bin\Release\net6.0\DualSenseBatteryHelper.exe" "$pluginDir\Helper\"
         
-        # Copy any additional dependencies if they exist
-        if (Test-Path "Plugin\bin\Release\net462\*.dll") {
-          Get-ChildItem "Plugin\bin\Release\net462\*.dll" | Where-Object { $_.Name -ne "DualSenseBattery.dll" } | ForEach-Object {
-            Copy-Item $_.FullName "$pluginDir\"
-            Write-Host "Copied dependency: $($_.Name)"
-          }
-        }
-        
         # Verify package contents
         Write-Host "Package contents:"
         Get-ChildItem "$pluginDir\" -Recurse | ForEach-Object { Write-Host "  - $($_.FullName)" }
         
-        # Create .pext file (zip with .pext extension)
+        # Test the package structure
+        Write-Host "Testing package structure..."
+        if (-not (Test-Path "$pluginDir\DualSenseBattery.dll")) {
+          Write-Host "❌ Main DLL missing!"
+          exit 1
+        }
+        if (-not (Test-Path "$pluginDir\extension.yaml")) {
+          Write-Host "❌ Extension YAML missing!"
+          exit 1
+        }
+        if (-not (Test-Path "$pluginDir\Helper\DualSenseBatteryHelper.exe")) {
+          Write-Host "❌ Helper EXE missing!"
+          exit 1
+        }
+        Write-Host "✅ All required files present"
+        
+        # Create .pext file using basic PowerShell method
+        Write-Host "Creating .pext file..."
         Compress-Archive -Path "$pluginDir" -DestinationPath "DualSenseBattery.pext" -Force
         
         Write-Host "✅ Plugin package created successfully"
         Write-Host "Package size: $((Get-Item 'DualSenseBattery.pext').Length) bytes"
+        
+        # Test the zip structure
+        Write-Host "Testing zip contents:"
+        $zip = [System.IO.Compression.ZipFile]::OpenRead("DualSenseBattery.pext")
+        $zip.Entries | ForEach-Object { Write-Host "  - $($_.FullName)" }
+        $zip.Dispose()
     
     - name: Upload Plugin Artifact
       uses: actions/upload-artifact@v4
