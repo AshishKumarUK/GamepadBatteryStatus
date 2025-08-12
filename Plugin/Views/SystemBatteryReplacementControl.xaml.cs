@@ -8,7 +8,7 @@ using DualSenseBattery;
 
 namespace DualSense.Views
 {
-    public partial class SystemBatteryReplacementControl : PluginUserControl
+    public partial class SystemBatteryReplacementControl : UserControl
     {
         private readonly string helperPath;
         private readonly System.Windows.Threading.DispatcherTimer timer;

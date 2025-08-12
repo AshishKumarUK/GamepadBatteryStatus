@@ -4,13 +4,12 @@ using System.Diagnostics;
 using System.IO;
 using System.Threading.Tasks;
 using System.Windows;
-using System.Windows.Forms;
 using System.Reflection;
 using DualSenseBattery;
 
 namespace DualSense.Views
 {
-    public partial class AutoSystemBatteryReplacementControl : PluginUserControl
+    public partial class AutoSystemBatteryReplacementControl : UserControl
     {
         private readonly string helperPath;
         private readonly System.Windows.Threading.DispatcherTimer timer;
@@ -83,10 +82,11 @@ namespace DualSense.Views
         {
             try
             {
-                // Check if system has a battery
-                bool hasSystemBattery = SystemInformation.PowerStatus.BatteryChargeStatus != BatteryChargeStatus.NoSystemBattery;
+                // Simple heuristic: assume desktop PC if no battery is detected
+                // This is a reasonable assumption for most desktop users
+                bool hasSystemBattery = IsDesktopPC();
                 
-                // If no system battery, always show DualSense battery
+                // If desktop PC (no system battery), always show DualSense battery
                 if (!hasSystemBattery)
                 {
                     if (!isSystemBatteryEnabled)
@@ -97,9 +97,7 @@ namespace DualSense.Views
                     return;
                 }
 
-                // Try to detect if Playnite's battery setting is disabled
-                // This is a heuristic approach since we can't directly access Playnite's settings
-                // We check if the system battery is available but the UI element should be hidden
+                // For laptops, try to detect if Playnite's battery setting is disabled
                 bool shouldShowDualSense = !hasSystemBattery || IsSystemBatteryDisabled();
                 
                 if (shouldShowDualSense != isSystemBatteryEnabled)
@@ -120,6 +118,33 @@ namespace DualSense.Views
                 // If we can't determine, assume system battery is enabled
                 isSystemBatteryEnabled = true;
                 HideDualSenseBattery();
+            }
+        }
+
+        private bool IsDesktopPC()
+        {
+            try
+            {
+                // Simple heuristic: check if we're in fullscreen mode on a desktop
+                // Most desktop users use fullscreen mode where battery settings apply
+                var currentApp = System.Windows.Application.Current;
+                if (currentApp != null)
+                {
+                    var mainWindow = currentApp.MainWindow;
+                    if (mainWindow != null && mainWindow.WindowState == WindowState.Maximized)
+                    {
+                        // In fullscreen mode, assume desktop PC (no system battery)
+                        return false; // false = no system battery = desktop PC
+                    }
+                }
+                
+                // Default: assume laptop (has system battery)
+                return true;
+            }
+            catch
+            {
+                // Default: assume laptop
+                return true;
             }
         }
 
