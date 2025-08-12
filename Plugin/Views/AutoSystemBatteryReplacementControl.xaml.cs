@@ -6,6 +6,7 @@ using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Forms;
 using System.Reflection;
+using DualSenseBattery;
 
 namespace DualSense.Views
 {
