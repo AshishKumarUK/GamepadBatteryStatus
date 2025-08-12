@@ -7,7 +7,7 @@ using System.Windows;
 using System.Reflection;
 using DualSenseBattery;
 
-namespace DualSense.Views
+namespace DualSenseBattery.Views
 {
     public partial class AutoSystemBatteryReplacementControl : PluginUserControl
     {

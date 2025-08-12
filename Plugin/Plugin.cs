@@ -278,10 +278,10 @@ namespace DualSenseBattery
                 }
                 
                 // Normal adaptive polling: faster when charging, normal when discharging
-                int newInterval = r.Charging ? FAST_POLL_INTERVAL : NORMAL_POLL_INTERVAL;
-                if (newInterval != currentPollInterval)
+                int adaptiveInterval = r.Charging ? FAST_POLL_INTERVAL : NORMAL_POLL_INTERVAL;
+                if (adaptiveInterval != currentPollInterval)
                 {
-                    currentPollInterval = newInterval;
+                    currentPollInterval = adaptiveInterval;
                     StartWatcher(); // Restart with new interval
                 }
             }

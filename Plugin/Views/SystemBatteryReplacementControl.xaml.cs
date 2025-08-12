@@ -6,7 +6,7 @@ using System.Threading.Tasks;
 using System.Windows;
 using DualSenseBattery;
 
-namespace DualSense.Views
+namespace DualSenseBattery.Views
 {
     public partial class SystemBatteryReplacementControl : PluginUserControl
     {
