@@ -113,14 +113,17 @@ namespace DualSenseBattery
                 // Find built-in battery slot by common names (default + popular themes)
                 if (batteryHost == null)
                 {
-                    batteryHost = FindByName(main, "PART_ElemBatteryStatus")
+                    // Prefer PS5 Reborn specific names first so visibility reflects its own toggle
+                    batteryHost = FindByName(main, "CustomBattery")
+                                  ?? FindByName(main, "BatteryStatus")
+                                  ?? FindByName(main, "PART_ElemBatteryStatus")
                                   ?? FindByName(main, "ElemBatteryStatus")
                                   ?? FindByName(main, "PART_BatteryStatus")
-                                  ?? FindByName(main, "BatteryStatus")
                                   ?? FindByName(main, "PART_PS_Battery")
                                   ?? FindByName(main, "PSBattery")
                                   ?? FindByName(main, "PS5_Battery")
-                                  ?? FindByName(main, "PS5Battery");
+                                  ?? FindByName(main, "PS5Battery")
+                                  ?? FindByName(main, "Battery");
                 }
                 if (batteryHost == null)
                 {
@@ -128,9 +131,10 @@ namespace DualSenseBattery
                     return;
                 }
 
-                EnsureInjectedBeside(batteryHost);
+                EnsureInjectedInside(batteryHost);
                 // Show ours only when the built-in one is hidden (user disabled system battery)
-                injected.Visibility = (batteryHost as UIElement)?.IsVisible == true ? Visibility.Collapsed : Visibility.Visible;
+                var hostVisible = (batteryHost as UIElement)?.IsVisible == true && (batteryHost as UIElement).Visibility == Visibility.Visible;
+                injected.Visibility = hostVisible ? Visibility.Collapsed : Visibility.Visible;
             }
             catch
             {
@@ -138,32 +142,37 @@ namespace DualSenseBattery
             }
         }
 
-        private void EnsureInjectedBeside(FrameworkElement target)
+        private void EnsureInjectedInside(FrameworkElement target)
         {
             if (injected != null) return;
 
-            var parent = VisualTreeHelper.GetParent(target) as Panel;
-            if (parent == null) return;
+            // Prefer inserting into the host itself to inherit transforms (e.g., PS5 Reborn ScaleTransform)
+            Panel container = target as Panel;
+            if (container == null)
+            {
+                container = VisualTreeHelper.GetParent(target) as Panel;
+                if (container == null) return;
+            }
 
             var control = new Views.AutoSystemBatteryReplacementControl
             {
                 IsHitTestVisible = false,
                 Focusable = false,
-                HorizontalAlignment = target.HorizontalAlignment,
-                VerticalAlignment = target.VerticalAlignment,
-                Margin = target.Margin
+                HorizontalAlignment = HorizontalAlignment.Stretch,
+                VerticalAlignment = VerticalAlignment.Stretch,
+                Margin = new Thickness(0)
             };
 
-            // Copy Grid position if applicable
-            if (target is FrameworkElement fe)
+            // If adding as sibling, copy grid position; if adding inside, let it fill
+            if (!ReferenceEquals(container, target))
             {
-                try { Grid.SetRow(control, Grid.GetRow(fe)); } catch { }
-                try { Grid.SetColumn(control, Grid.GetColumn(fe)); } catch { }
-                try { Grid.SetRowSpan(control, Grid.GetRowSpan(fe)); } catch { }
-                try { Grid.SetColumnSpan(control, Grid.GetColumnSpan(fe)); } catch { }
+                try { Grid.SetRow(control, Grid.GetRow(target)); } catch { }
+                try { Grid.SetColumn(control, Grid.GetColumn(target)); } catch { }
+                try { Grid.SetRowSpan(control, Grid.GetRowSpan(target)); } catch { }
+                try { Grid.SetColumnSpan(control, Grid.GetColumnSpan(target)); } catch { }
             }
 
-            parent.Children.Add(control);
+            container.Children.Add(control);
             injected = control;
         }
 
