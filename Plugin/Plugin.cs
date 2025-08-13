@@ -80,6 +80,7 @@ namespace DualSenseBattery
         private DispatcherTimer timer;
         private FrameworkElement batteryHost; // theme battery content (e.g., CustomBattery/BatteryStatus)
         private FrameworkElement batteryRoot; // theme battery container (e.g., Battery)
+		private FrameworkElement batteryPercent; // theme battery percentage text
         private FrameworkElement injected;
 
         public void Start()
@@ -92,7 +93,7 @@ namespace DualSenseBattery
             timer.Start();
         }
 
-        private void Timer_Tick(object sender, EventArgs e)
+		private void Timer_Tick(object sender, EventArgs e)
         {
             try
             {
@@ -111,7 +112,7 @@ namespace DualSenseBattery
                     return;
                 }
 
-                // Find built-in battery slot by common names (default + popular themes)
+				// Find built-in battery slot by common names (default + popular themes)
                 if (batteryHost == null)
                 {
                     // Prefer PS5 Reborn specific names first so visibility reflects its own toggle
@@ -127,6 +128,14 @@ namespace DualSenseBattery
                                   ?? FindByName(main, "Battery");
                 }
 
+				// Find percentage element by common names from default theme
+				if (batteryPercent == null)
+				{
+					batteryPercent = FindByName(main, "PART_TextBatteryPercentage")
+								 ?? FindByName(main, "TextBatteryPercentage")
+								 ?? FindByName(main, "BatteryPercentage");
+				}
+
                 // Also cache the outer container (PS5 Reborn uses Grid x:Name="Battery")
                 if (batteryRoot == null)
                 {
@@ -138,18 +147,19 @@ namespace DualSenseBattery
                     return;
                 }
 
-                // Determine visibility based on theme's battery host (handles opacity/scale animations too)
-                var hostVisible = IsEffectivelyVisible(batteryHost);
+				// Determine visibility based on theme's battery host and percentage (handles opacity/scale animations too)
+				var hostVisible = IsEffectivelyVisible(batteryHost);
+				var percentVisible = IsEffectivelyVisible(batteryPercent);
 
                 // Inject as sibling under the outer battery container so our control doesn't inherit host's Collapsed state
                 var parentPanel = (batteryRoot as Panel) ?? GetParentPanel(batteryHost);
                 EnsureInjectedAsSibling(parentPanel, batteryHost);
 
-                // Show ours only when the built-in one is hidden
-                injected.Visibility = hostVisible ? Visibility.Collapsed : Visibility.Visible;
+				// Show ours only when BOTH built-in icon and percentage are hidden (user disabled both toggles)
+				injected.Visibility = (!hostVisible && !percentVisible) ? Visibility.Visible : Visibility.Collapsed;
                 if (injected is Views.AutoSystemBatteryReplacementControl ctrl)
                 {
-                    ctrl.ForceShow = injected.Visibility == Visibility.Visible;
+					ctrl.ForceShow = injected.Visibility == Visibility.Visible;
                 }
             }
             catch

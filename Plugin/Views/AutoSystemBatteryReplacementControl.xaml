@@ -8,14 +8,11 @@
              d:DesignHeight="42" d:DesignWidth="42">
     
     <Grid x:Name="ContentRoot" Visibility="Collapsed">
-        <!-- PS5 Reborn-style bar (scaled) -->
-        <Grid x:Name="BarHost" Margin="7,0,0,0" HorizontalAlignment="Left" RenderTransformOrigin="0,0">
-            <Grid.RenderTransform>
-                <ScaleTransform ScaleX="0.28" ScaleY="1" />
-            </Grid.RenderTransform>
-            <Rectangle x:Name="Bar" Height="14" RadiusX="5" RadiusY="5" Fill="White" Width="0" />
+        <!-- Match system battery exactly: only the glyph icon (keep hidden bar element for code-behind references) -->
+        <Grid x:Name="BarHost" Visibility="Collapsed">
+            <Rectangle x:Name="Bar" Visibility="Collapsed" />
         </Grid>
-        <!-- Icon glyph (default and PS5 Reborn outline) -->
+        <!-- Icon glyph from theme resources -->
         <TextBlock x:Name="Icon" FontSize="42" HorizontalAlignment="Center" VerticalAlignment="Center" />
     </Grid>
 </playniteControls:PluginUserControl>

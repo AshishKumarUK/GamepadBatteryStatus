@@ -31,7 +31,7 @@ namespace DualSenseBattery.Views
         private bool isInInitialDetectionMode = true;
         private const int INITIAL_DETECTION_DURATION = 30000; // 30 seconds
 
-        // Automatic system battery detection
+        // Track whether theme's system battery+percentage are shown (controlled by overlay manager)
         private bool isSystemBatteryEnabled = true;
         private readonly System.Windows.Threading.DispatcherTimer settingsCheckTimer;
 
@@ -88,32 +88,15 @@ namespace DualSenseBattery.Views
         {
             try
             {
-                // Heuristic: on desktop (no system battery), always show DualSense battery
-                bool isDesktop = IsDesktopPC();
-                if (isDesktop)
+                // Overlay manager decides visibility based on actual theme toggle state.
+                // Here we keep logic minimal: respect external toggle via ForceShow or when system battery is disabled.
+                if (!isSystemBatteryEnabled || ForceShow)
                 {
-                    if (isSystemBatteryEnabled)
-                    {
-                        isSystemBatteryEnabled = false;
-                    }
                     ShowDualSenseBattery();
-                    return;
                 }
-
-                // For laptops, try to detect if Playnite's battery setting is disabled
-                bool shouldShowDualSense = IsSystemBatteryDisabled();
-                
-                if (shouldShowDualSense != isSystemBatteryEnabled)
+                else
                 {
-                    isSystemBatteryEnabled = !shouldShowDualSense;
-                    if (shouldShowDualSense)
-                    {
-                        ShowDualSenseBattery();
-                    }
-                    else
-                    {
-                        HideDualSenseBattery();
-                    }
+                    HideDualSenseBattery();
                 }
             }
             catch
@@ -121,61 +104,6 @@ namespace DualSenseBattery.Views
                 // If we can't determine, assume system battery is enabled
                 isSystemBatteryEnabled = true;
                 HideDualSenseBattery();
-            }
-        }
-
-        private bool IsDesktopPC()
-        {
-            try
-            {
-                // Simple heuristic: check if we're in fullscreen mode on a desktop
-                // Most desktop users use fullscreen mode where battery settings apply
-                var currentApp = System.Windows.Application.Current;
-                if (currentApp != null)
-                {
-                    var mainWindow = currentApp.MainWindow;
-                    if (mainWindow != null && mainWindow.WindowState == WindowState.Maximized)
-                    {
-                        // In fullscreen mode, assume desktop PC (no system battery)
-                        return false; // false = no system battery = desktop PC
-                    }
-                }
-                
-                // Default: assume laptop (has system battery)
-                return true;
-            }
-            catch
-            {
-                // Default: assume laptop
-                return true;
-            }
-        }
-
-        private bool IsSystemBatteryDisabled()
-        {
-            try
-            {
-                // Try to detect if Playnite's battery setting is disabled
-                // This is a heuristic - we check if we're in fullscreen mode and system battery should be hidden
-                var currentApp = System.Windows.Application.Current;
-                if (currentApp != null)
-                {
-                    // Check if we're in fullscreen mode (where battery settings apply)
-                    var mainWindow = currentApp.MainWindow;
-                    if (mainWindow != null && mainWindow.WindowState == WindowState.Maximized)
-                    {
-                        // In fullscreen mode, assume battery might be disabled for desktop users
-                        // This is a reasonable assumption for desktop PC users
-                        return true;
-                    }
-                }
-                
-                // Default: assume system battery is enabled
-                return false;
-            }
-            catch
-            {
-                return false;
             }
         }
 
@@ -387,13 +315,11 @@ namespace DualSenseBattery.Views
 
         private void SetThemeIcon(BatteryChargeLevel level, bool charging)
         {
-            // PS5 Reborn and default theme expose BatteryStatus* text blocks as resources in the window resources
-            string key = charging
-                ? "BatteryStatusCharging"
-                : (level == BatteryChargeLevel.High ? "BatteryStatusHigh"
-                   : level == BatteryChargeLevel.Medium ? "BatteryStatusMedium"
-                   : level == BatteryChargeLevel.Low ? "BatteryStatusLow"
-                   : "BatteryStatusCritical");
+            // Default theme maps icon purely by charge level (charging doesn't change the glyph)
+            string key = (level == BatteryChargeLevel.High ? "BatteryStatusHigh"
+                          : level == BatteryChargeLevel.Medium ? "BatteryStatusMedium"
+                          : level == BatteryChargeLevel.Low ? "BatteryStatusLow"
+                          : "BatteryStatusCritical");
 
             var res = TryFindResource(key) as TextBlock;
             if (res != null)
@@ -408,13 +334,19 @@ namespace DualSenseBattery.Views
             // PS5 Reborn fallback using Segoe Fluent Icons glyphs
             if (res == null)
             {
-                Icon.Text = charging ? "\ue85a" : "\ue850";
+                Icon.Text = "\ue850";
                 Icon.FontFamily = new FontFamily("Segoe Fluent Icons");
                 Icon.Foreground = Brushes.White;
                 Icon.Effect = new System.Windows.Media.Effects.DropShadowEffect { BlurRadius = 5, ShadowDepth = 0 };
             }
 
-            // Update PS5 Reborn-like bar
+            // Critical level in default theme is forced Red
+            if (level == BatteryChargeLevel.Critical)
+            {
+                Icon.Foreground = Brushes.Red;
+            }
+
+            // Update PS5 Reborn-like bar (kept for themes expecting it; hidden in XAML)
             try
             {
                 double pct = 0;
