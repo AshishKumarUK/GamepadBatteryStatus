@@ -391,6 +391,15 @@ namespace DualSenseBattery
         }
     }
 
+    internal class PowerStatusBindingProxy
+    {
+        public DualSensePowerStatus PowerStatus { get; }
+        public PowerStatusBindingProxy(DualSensePowerStatus status)
+        {
+            PowerStatus = status;
+        }
+    }
+
     // Custom power status implementation that reads DualSense battery
     public class DualSensePowerStatus : INotifyPropertyChanged, IDisposable
     {
