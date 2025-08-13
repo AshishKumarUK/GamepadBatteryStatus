@@ -8,11 +8,23 @@
              d:DesignHeight="42" d:DesignWidth="42">
     
     <Grid x:Name="ContentRoot" Visibility="Collapsed">
-        <!-- Match system battery exactly: only the glyph icon (keep hidden bar element for code-behind references) -->
-        <Grid x:Name="BarHost" Visibility="Collapsed">
-            <Rectangle x:Name="Bar" Visibility="Collapsed" />
+        <!-- Battery fill bar (behind icon) to mimic PS5 Reborn's BatteryStatus rectangle -->
+        <Grid x:Name="BarHost" RenderTransformOrigin="0,0">
+            <Rectangle x:Name="BatteryFill"
+                       HorizontalAlignment="Left"
+                       VerticalAlignment="Center"
+                       Height="14"
+                       Width="0" />
         </Grid>
-        <!-- Icon glyph from theme resources -->
-        <TextBlock x:Name="Icon" FontSize="42" HorizontalAlignment="Center" VerticalAlignment="Center" />
+
+        <!-- Icon glyph to match PS5 Reborn (overlays bar) -->
+        <TextBlock x:Name="Icon"
+                   FontSize="42"
+                   HorizontalAlignment="Center"
+                   VerticalAlignment="Center" />
+
+        <!-- Optional hidden percentage text (used by code-behind) -->
+        <TextBlock x:Name="Txt"
+                   Visibility="Collapsed" />
     </Grid>
 </playniteControls:PluginUserControl>

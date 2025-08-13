@@ -155,28 +155,41 @@ namespace DualSenseBattery
 				var hostVisible = IsEffectivelyVisible(batteryHost);
 				var percentVisible = IsEffectivelyVisible(batteryPercent);
 
-                // PS5 Reborn: inject inside the Battery container to preserve spacing with clock/icons
+                // PS5 Reborn: replace system battery with our control
                 bool isPs5Reborn = batteryRoot is FrameworkElement br && string.Equals(br.Name, "Battery", StringComparison.OrdinalIgnoreCase);
                 if (isPs5Reborn)
                 {
-                    // Prefer inner BatteryStatus for exact margin/scale reference
-                    var refElem = FindByName(batteryRoot, "BatteryStatus") ?? batteryHost ?? batteryRoot;
+                    // Hide theme battery
+                    var customBattery = FindByName(batteryRoot, "CustomBattery") as FrameworkElement;
+                    if (customBattery != null)
+                    {
+                        try { customBattery.Visibility = Visibility.Collapsed; } catch { }
+                    }
+
+                    // Use inner BatteryStatus as reference to copy transform/margins for exact sizing
+                    var refElem = FindByName(batteryRoot, "BatteryStatus") ?? batteryRoot;
                     var parent = (batteryRoot as Panel) ?? GetParentPanel(refElem);
                     EnsureInjectedInside(parent, refElem);
+
+                    // Force show ours in this mode
+                    injected.Visibility = Visibility.Visible;
+                    if (injected is Views.AutoSystemBatteryReplacementControl ctrl)
+                    {
+                        ctrl.ForceShow = true;
+                    }
                 }
                 else
                 {
-                    // Other themes: inject as sibling next to the host
+                    // Other themes: inject as sibling next to the host and only show if built-in is hidden
                     var reference = batteryHost ?? batteryPercent;
                     var parentPanel = (batteryRoot as Panel) ?? GetParentPanel(reference);
                     EnsureInjectedAsSibling(parentPanel, reference);
-                }
 
-				// Show ours only when BOTH built-in icon and percentage are hidden (user disabled both toggles)
-				injected.Visibility = (!hostVisible && !percentVisible) ? Visibility.Visible : Visibility.Collapsed;
-                if (injected is Views.AutoSystemBatteryReplacementControl ctrl)
-                {
-					ctrl.ForceShow = injected.Visibility == Visibility.Visible;
+					injected.Visibility = (!hostVisible && !percentVisible) ? Visibility.Visible : Visibility.Collapsed;
+                    if (injected is Views.AutoSystemBatteryReplacementControl ctrl)
+                    {
+						ctrl.ForceShow = injected.Visibility == Visibility.Visible;
+                    }
                 }
             }
             catch
