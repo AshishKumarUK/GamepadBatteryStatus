@@ -78,7 +78,8 @@ namespace DualSenseBattery
     internal class FullscreenOverlayManager
     {
         private DispatcherTimer timer;
-        private FrameworkElement batteryHost; // PART_ElemBatteryStatus
+        private FrameworkElement batteryHost; // theme battery content (e.g., CustomBattery/BatteryStatus)
+        private FrameworkElement batteryRoot; // theme battery container (e.g., Battery)
         private FrameworkElement injected;
 
         public void Start()
@@ -125,15 +126,25 @@ namespace DualSenseBattery
                                   ?? FindByName(main, "PS5Battery")
                                   ?? FindByName(main, "Battery");
                 }
+
+                // Also cache the outer container (PS5 Reborn uses Grid x:Name="Battery")
+                if (batteryRoot == null)
+                {
+                    batteryRoot = FindByName(main, "Battery") ?? FindByName(main, "BatteryContainer");
+                }
                 if (batteryHost == null)
                 {
                     RemoveInjected();
                     return;
                 }
 
-                EnsureInjectedInside(batteryHost);
-                // Show ours only when the built-in one is hidden (user disabled system battery)
+                // Determine visibility based on theme's battery host (CustomBattery typically collapses)
                 var hostVisible = (batteryHost as UIElement)?.IsVisible == true && (batteryHost as UIElement).Visibility == Visibility.Visible;
+
+                // Inject as sibling under the outer battery container so our control doesn't inherit host's Collapsed state
+                EnsureInjectedAsSibling(batteryRoot ?? GetParentPanel(batteryHost), batteryHost);
+
+                // Show ours only when the built-in one is hidden
                 injected.Visibility = hostVisible ? Visibility.Collapsed : Visibility.Visible;
                 if (injected is Views.AutoSystemBatteryReplacementControl ctrl)
                 {
@@ -146,38 +157,42 @@ namespace DualSenseBattery
             }
         }
 
-        private void EnsureInjectedInside(FrameworkElement target)
+        private void EnsureInjectedAsSibling(Panel parent, FrameworkElement reference)
         {
             if (injected != null) return;
-
-            // Prefer inserting into the host itself to inherit transforms (e.g., PS5 Reborn ScaleTransform)
-            Panel container = target as Panel;
-            if (container == null)
-            {
-                container = VisualTreeHelper.GetParent(target) as Panel;
-                if (container == null) return;
-            }
+            if (parent == null) return;
 
             var control = new Views.AutoSystemBatteryReplacementControl
             {
                 IsHitTestVisible = false,
                 Focusable = false,
-                HorizontalAlignment = HorizontalAlignment.Stretch,
-                VerticalAlignment = VerticalAlignment.Stretch,
+                HorizontalAlignment = HorizontalAlignment.Left,
+                VerticalAlignment = VerticalAlignment.Top,
                 Margin = new Thickness(0)
             };
 
-            // If adding as sibling, copy grid position; if adding inside, let it fill
-            if (!ReferenceEquals(container, target))
+            // Position by copying grid placement from reference
+            if (reference != null)
             {
-                try { Grid.SetRow(control, Grid.GetRow(target)); } catch { }
-                try { Grid.SetColumn(control, Grid.GetColumn(target)); } catch { }
-                try { Grid.SetRowSpan(control, Grid.GetRowSpan(target)); } catch { }
-                try { Grid.SetColumnSpan(control, Grid.GetColumnSpan(target)); } catch { }
+                try { Grid.SetRow(control, Grid.GetRow(reference)); } catch { }
+                try { Grid.SetColumn(control, Grid.GetColumn(reference)); } catch { }
+                try { Grid.SetRowSpan(control, Grid.GetRowSpan(reference)); } catch { }
+                try { Grid.SetColumnSpan(control, Grid.GetColumnSpan(reference)); } catch { }
+
+                // If reference has RenderTransform (e.g., ScaleTransform), reuse it for consistent sizing
+                try { control.RenderTransform = reference.RenderTransform; } catch { }
+                try { control.Margin = reference.Margin; } catch { }
+                try { control.HorizontalAlignment = reference.HorizontalAlignment; } catch { }
+                try { control.VerticalAlignment = reference.VerticalAlignment; } catch { }
             }
 
-            container.Children.Add(control);
+            parent.Children.Add(control);
             injected = control;
+        }
+
+        private Panel GetParentPanel(FrameworkElement elem)
+        {
+            return VisualTreeHelper.GetParent(elem) as Panel;
         }
 
         private void RemoveInjected()
