@@ -10,11 +10,13 @@ using System.Threading.Tasks;
 using System.Diagnostics;
 using System.IO;
 using System.Windows;
+using System.Windows.Threading;
 
 namespace DualSenseBattery
 {
     public class PluginImpl : GenericPlugin
     {
+        private FullscreenOverlayManager overlayManager;
         public override Guid Id => new Guid("fbd2c2e6-9c1b-49b6-9c0d-1c5d3c0a9a6a");
 
         public PluginImpl(IPlayniteAPI api) : base(api)
@@ -34,6 +36,13 @@ namespace DualSenseBattery
             });
         }
 
+        public override void OnApplicationStarted(OnApplicationStartedEventArgs args)
+        {
+            base.OnApplicationStarted(args);
+            overlayManager = new FullscreenOverlayManager();
+            overlayManager.Start();
+        }
+
         public override Control GetGameViewControl(GetGameViewControlArgs args)
         {
             if (args.Name == "Bar")
@@ -49,6 +58,106 @@ namespace DualSenseBattery
                 return new Views.AutoSystemBatteryReplacementControl();
             }
             return null;
+        }
+
+        public override IEnumerable<TopPanelItem> GetTopPanelItems()
+        {
+            // Provide an automatic top panel item so no theme editing is required.
+            // The internal control handles its own visibility (desktop vs laptop, system battery setting, etc.).
+            yield return new TopPanelItem
+            {
+                Title = "Controller Battery",
+                Icon = new Views.AutoSystemBatteryReplacementControl(),
+                Visible = true
+            };
+        }
+    }
+
+    internal class FullscreenOverlayManager
+    {
+        private Window overlay;
+        private DispatcherTimer timer;
+        private const double MarginFromEdges = 16.0;
+
+        public void Start()
+        {
+            timer = new DispatcherTimer
+            {
+                Interval = TimeSpan.FromSeconds(1)
+            };
+            timer.Tick += Timer_Tick;
+            timer.Start();
+        }
+
+        private void Timer_Tick(object sender, EventArgs e)
+        {
+            try
+            {
+                var main = Application.Current?.MainWindow;
+                if (main == null)
+                {
+                    HideOverlay();
+                    return;
+                }
+
+                // Detect fullscreen app by window type name containing "FullscreenApp"
+                var isFullscreen = main.GetType().FullName?.IndexOf("FullscreenApp", StringComparison.OrdinalIgnoreCase) >= 0;
+                if (!isFullscreen)
+                {
+                    HideOverlay();
+                    return;
+                }
+
+                ShowOverlay(main);
+                PositionOverlay(main);
+            }
+            catch
+            {
+                // ignore
+            }
+        }
+
+        private void ShowOverlay(Window owner)
+        {
+            if (overlay != null)
+            {
+                if (!overlay.IsVisible)
+                {
+                    overlay.Show();
+                }
+                return;
+            }
+
+            overlay = new Window
+            {
+                Width = 48,
+                Height = 48,
+                WindowStyle = WindowStyle.None,
+                ResizeMode = ResizeMode.NoResize,
+                ShowInTaskbar = false,
+                Topmost = true,
+                Background = System.Windows.Media.Brushes.Transparent,
+                AllowsTransparency = true,
+                Content = new Views.AutoSystemBatteryReplacementControl()
+            };
+
+            try { overlay.Owner = owner; } catch { }
+            overlay.Show();
+        }
+
+        private void PositionOverlay(Window owner)
+        {
+            if (overlay == null || owner == null) return;
+            overlay.Top = owner.Top + MarginFromEdges;
+            overlay.Left = owner.Left + Math.Max(0, owner.Width - overlay.Width - MarginFromEdges);
+        }
+
+        private void HideOverlay()
+        {
+            if (overlay != null)
+            {
+                try { overlay.Hide(); } catch { }
+            }
         }
     }
 
