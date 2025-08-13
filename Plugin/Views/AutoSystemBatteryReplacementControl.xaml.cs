@@ -315,20 +315,30 @@ namespace DualSenseBattery.Views
 
         private void SetThemeIcon(BatteryChargeLevel level, bool charging)
         {
-            // Default theme maps icon purely by charge level (charging doesn't change the glyph)
-            string key = (level == BatteryChargeLevel.High ? "BatteryStatusHigh"
-                          : level == BatteryChargeLevel.Medium ? "BatteryStatusMedium"
-                          : level == BatteryChargeLevel.Low ? "BatteryStatusLow"
-                          : "BatteryStatusCritical");
+            // PS5 Reborn defines TextBlock resources in Media.xaml for each state
+            string key = charging ? "BatteryStatusCharging"
+                                  : (level == BatteryChargeLevel.High ? "BatteryStatusHigh"
+                                    : level == BatteryChargeLevel.Medium ? "BatteryStatusMedium"
+                                    : level == BatteryChargeLevel.Low ? "BatteryStatusLow"
+                                    : "BatteryStatusCritical");
 
             var res = TryFindResource(key) as TextBlock;
             if (res != null)
             {
                 Icon.Text = res.Text;
                 Icon.FontFamily = res.FontFamily;
-                Icon.FontSize = res.FontSize;
-                Icon.Foreground = res.Foreground;
-                Icon.Margin = res.Margin;
+                Icon.FontSize = res.FontSize > 0 ? res.FontSize : 42; // PS5 Reborn uses ~42
+                if (res.Foreground != null)
+                {
+                    Icon.Foreground = res.Foreground;
+                }
+                // Apply theme-like drop shadow for legibility
+                Icon.Effect = new System.Windows.Media.Effects.DropShadowEffect { BlurRadius = 5, ShadowDepth = 0 };
+                // Margin: keep default unless resource overrides
+                if (res.Margin != default(Thickness))
+                {
+                    Icon.Margin = res.Margin;
+                }
             }
 
             // PS5 Reborn fallback using Segoe Fluent Icons glyphs
@@ -346,21 +356,7 @@ namespace DualSenseBattery.Views
                 Icon.Foreground = Brushes.Red;
             }
 
-            // Update PS5 Reborn-like bar (kept for themes expecting it; hidden in XAML)
-            try
-            {
-                double pct = 0;
-                switch (level)
-                {
-                    case BatteryChargeLevel.High: pct = 1.0; break;
-                    case BatteryChargeLevel.Medium: pct = 0.6; break;
-                    case BatteryChargeLevel.Low: pct = 0.3; break;
-                    default: pct = 0.1; break;
-                }
-                BatteryFill.Width = 100 * pct; // match PS5 Reborn bar height
-                BatteryFill.Fill = level == BatteryChargeLevel.Critical ? Brushes.Red : Brushes.White;
-            }
-            catch { }
+            // Keep bar hidden by default (we only need glyph for PS5 Reborn)
         }
 
         private class BatteryReading
