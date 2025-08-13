@@ -5,14 +5,19 @@ using System.Threading;
 using System.Net.Sockets;
 using System.Net;
 using System.Text;
+using System.Runtime.InteropServices;
 using DualSenseAPI;
 
 static class Program
 {
-    static void Main()
+	private static bool s_debug;
+
+	static void Main(string[] args)
     {
         try
         {
+			// enable debug logs on stderr
+			s_debug = args != null && args.Any(a => string.Equals(a, "--debug", StringComparison.OrdinalIgnoreCase));
             // 1) Try native DualSense HID first
             if (TryDualSenseHid(out int level, out bool charging, out bool full))
             {
@@ -20,7 +25,7 @@ static class Program
                 return;
             }
 
-            // 2) Fallback: DS4Windows UDP (Cemuhook / DSU)
+			// 2) Fallback: DS4Windows UDP (Cemuhook / DSU)
             if (TryDs4WindowsUdp(out level, out charging, out full))
             {
                 PrintJson(true, level, charging, full);
@@ -29,7 +34,15 @@ static class Program
 
             // 3) Nothing worked
             Console.WriteLine(JsonSerializer.Serialize(new { connected = false }));
-        }
+	}
+	private static void DebugLog(string msg)
+	{
+		if (s_debug)
+		{
+			try { Console.Error.WriteLine(msg); } catch { }
+		}
+	}
+
         catch
         {
             Console.WriteLine(JsonSerializer.Serialize(new { connected = false }));
@@ -88,7 +101,7 @@ static class Program
     }
 
     // ---------- DS4Windows UDP (Cemuhook / DSU) ----------
-    // Minimal “controller info” request & parse.
+    // Proper flow: REGISTER client, then INFO request, then read response.
     private static bool TryDs4WindowsUdp(out int levelPercent, out bool charging, out bool full)
     {
         levelPercent = 0; charging = false; full = false;
@@ -96,38 +109,32 @@ static class Program
         const string host = "127.0.0.1";
         const int port = 26760;
         const ushort proto = 1001;
+        const uint MSG_REGISTER = 0x100000;
         const uint MSG_INFO = 0x100001;
 
         var clientId = (uint)Environment.TickCount;
 
-        // payload: [int32 count=4][byte slots 0..3]
+        // 1) REGISTER packet (no payload in simple form)
+        byte[] regPacket = BuildDsuPacket(proto, clientId, MSG_REGISTER, Array.Empty<byte>());
+
+        // 2) INFO request for slots 0..3
         byte[] slots = new byte[] { 0, 1, 2, 3 };
-        byte[] payload = new byte[4 + slots.Length];
-        BitConverter.GetBytes(4).CopyTo(payload, 0);
-        Buffer.BlockCopy(slots, 0, payload, 4, slots.Length);
+        byte[] infoPayload = new byte[4 + slots.Length];
+        BitConverter.GetBytes(4).CopyTo(infoPayload, 0);
+        Buffer.BlockCopy(slots, 0, infoPayload, 4, slots.Length);
+        byte[] infoPacket = BuildDsuPacket(proto, clientId, MSG_INFO, infoPayload);
 
-        // header (20 bytes) + payload
-        int lengthNoHeader = 4 + payload.Length;
-        byte[] packet = new byte[20 + payload.Length];
-        Encoding.ASCII.GetBytes("DSUC").CopyTo(packet, 0);
-        BitConverter.GetBytes(proto).CopyTo(packet, 4);
-        BitConverter.GetBytes((ushort)lengthNoHeader).CopyTo(packet, 6);
-        // crc placeholder at [8..11]
-        BitConverter.GetBytes(clientId).CopyTo(packet, 12);
-        BitConverter.GetBytes(MSG_INFO).CopyTo(packet, 16);
-        Buffer.BlockCopy(payload, 0, packet, 20, payload.Length);
-
-        // compute CRC32 with [8..11] zeroed
-        for (int i = 8; i < 12; i++) packet[i] = 0;
-        uint crc = Crc32(packet);
-        BitConverter.GetBytes((int)crc).CopyTo(packet, 8);
+        DebugLog($"DSU: sending REGISTER, then INFO to {host}:{port}");
 
         try
         {
             using var udp = new UdpClient();
             udp.Client.ReceiveTimeout = 400;
             udp.Connect(host, port);
-            udp.Send(packet, packet.Length);
+            udp.Send(regPacket, regPacket.Length);
+            // brief pause, then INFO
+            Thread.Sleep(50);
+            udp.Send(infoPacket, infoPacket.Length);
 
             var start = Environment.TickCount;
             while (Environment.TickCount - start < 1000)
@@ -149,7 +156,7 @@ static class Program
                 // correct protocol?
                 if (BitConverter.ToUInt16(resp, 4) != proto) continue;
 
-                // info message?
+                // only parse INFO messages for battery
                 if (BitConverter.ToUInt32(resp, 16) != MSG_INFO) continue;
 
                 // meta layout: [20]slot [21]state [22]model [23]connType [24..29]mac [30]battery
@@ -169,6 +176,27 @@ static class Program
         }
 
         return false;
+    }
+
+    private static byte[] BuildDsuPacket(ushort proto, uint clientId, uint messageType, byte[] payload)
+    {
+        int lengthNoHeader = 4 + (payload?.Length ?? 0);
+        byte[] packet = new byte[20 + (payload?.Length ?? 0)];
+        Encoding.ASCII.GetBytes("DSUC").CopyTo(packet, 0);
+        BitConverter.GetBytes(proto).CopyTo(packet, 4);
+        BitConverter.GetBytes((ushort)lengthNoHeader).CopyTo(packet, 6);
+        // crc at [8..11], zero before computing
+        BitConverter.GetBytes(clientId).CopyTo(packet, 12);
+        BitConverter.GetBytes(messageType).CopyTo(packet, 16);
+        if (payload != null && payload.Length > 0)
+        {
+            Buffer.BlockCopy(payload, 0, packet, 20, payload.Length);
+        }
+
+        for (int i = 8; i < 12; i++) packet[i] = 0;
+        uint crc = Crc32(packet);
+        BitConverter.GetBytes((int)crc).CopyTo(packet, 8);
+        return packet;
     }
 
     private static void MapDsuBattery(byte b, out int percent, out bool charging, out bool full)
