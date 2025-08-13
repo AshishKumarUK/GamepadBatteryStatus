@@ -34,7 +34,14 @@ static class Program
 
             // 3) Nothing worked
             Console.WriteLine(JsonSerializer.Serialize(new { connected = false }));
-	}
+		}
+
+        catch
+        {
+            Console.WriteLine(JsonSerializer.Serialize(new { connected = false }));
+        }
+    }
+
 	private static void DebugLog(string msg)
 	{
 		if (s_debug)
@@ -42,12 +49,6 @@ static class Program
 			try { Console.Error.WriteLine(msg); } catch { }
 		}
 	}
-
-        catch
-        {
-            Console.WriteLine(JsonSerializer.Serialize(new { connected = false }));
-        }
-    }
 
     private static void PrintJson(bool connected, int level, bool charging, bool full)
     {
