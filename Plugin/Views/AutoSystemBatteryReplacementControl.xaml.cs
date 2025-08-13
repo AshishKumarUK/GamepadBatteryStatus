@@ -82,23 +82,20 @@ namespace DualSenseBattery.Views
         {
             try
             {
-                // Simple heuristic: assume desktop PC if no battery is detected
-                // This is a reasonable assumption for most desktop users
-                bool hasSystemBattery = IsDesktopPC();
-                
-                // If desktop PC (no system battery), always show DualSense battery
-                if (!hasSystemBattery)
+                // Heuristic: on desktop (no system battery), always show DualSense battery
+                bool isDesktop = IsDesktopPC();
+                if (isDesktop)
                 {
-                    if (!isSystemBatteryEnabled)
+                    if (isSystemBatteryEnabled)
                     {
                         isSystemBatteryEnabled = false;
-                        ShowDualSenseBattery();
                     }
+                    ShowDualSenseBattery();
                     return;
                 }
 
                 // For laptops, try to detect if Playnite's battery setting is disabled
-                bool shouldShowDualSense = !hasSystemBattery || IsSystemBatteryDisabled();
+                bool shouldShowDualSense = IsSystemBatteryDisabled();
                 
                 if (shouldShowDualSense != isSystemBatteryEnabled)
                 {
