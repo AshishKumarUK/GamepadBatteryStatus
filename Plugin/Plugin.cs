@@ -159,7 +159,7 @@ namespace DualSenseBattery
             //   inject as a sibling under its parent (prefer the outer 'Battery' root when available)
             // - Otherwise, inject inside the target to inherit transforms
             Panel container = null;
-            bool injectingAsSibling = false;
+            bool injectingAsSibling = true; // default to sibling overlay for exact positioning
             var targetName = (target as FrameworkElement)?.Name ?? string.Empty;
             if (string.Equals(targetName, "CustomBattery", StringComparison.OrdinalIgnoreCase)
                 || string.Equals(targetName, "BatteryStatus", StringComparison.OrdinalIgnoreCase))
@@ -169,7 +169,14 @@ namespace DualSenseBattery
             }
             else
             {
-                container = (target as Panel) ?? GetParentPanel(target);
+                // Prefer sibling overlay even for non-PS5 themes to match exact host placement
+                container = GetParentPanel(target);
+                injectingAsSibling = true;
+                if (container == null)
+                {
+                    container = (target as Panel) ?? GetParentPanel(target);
+                    injectingAsSibling = ReferenceEquals(container, target);
+                }
             }
 
             if (container == null) return;
@@ -178,18 +185,18 @@ namespace DualSenseBattery
             {
                 IsHitTestVisible = false,
                 Focusable = false,
-                HorizontalAlignment = HorizontalAlignment.Stretch,
-                VerticalAlignment = VerticalAlignment.Stretch,
+                HorizontalAlignment = HorizontalAlignment.Left,
+                VerticalAlignment = VerticalAlignment.Top,
                 Margin = new Thickness(0)
             };
 
-            // If adding as sibling, copy grid position of the original host
-            if (injectingAsSibling && target != null)
+            // If adding as sibling, copy grid/canvas/dock position and layout of the host for 1:1 overlay
+            if (target != null)
             {
-                try { Grid.SetRow(control, Grid.GetRow(target)); } catch { }
-                try { Grid.SetColumn(control, Grid.GetColumn(target)); } catch { }
-                try { Grid.SetRowSpan(control, Grid.GetRowSpan(target)); } catch { }
-                try { Grid.SetColumnSpan(control, Grid.GetColumnSpan(target)); } catch { }
+                CopyAttachedLayout(control, target);
+                CopyLayoutProperties(control, target);
+                // Ensure overlay is on top of the host
+                try { Panel.SetZIndex(control, Panel.GetZIndex(target) + 1); } catch { }
             }
 
             container.Children.Add(control);
@@ -212,6 +219,77 @@ namespace DualSenseBattery
                 cur = VisualTreeHelper.GetParent(cur);
             }
             return cur as Panel;
+        }
+
+        private void CopyAttachedLayout(FrameworkElement dest, FrameworkElement src)
+        {
+            // Grid
+            try { Grid.SetRow(dest, Grid.GetRow(src)); } catch { }
+            try { Grid.SetColumn(dest, Grid.GetColumn(src)); } catch { }
+            try { Grid.SetRowSpan(dest, Grid.GetRowSpan(src)); } catch { }
+            try { Grid.SetColumnSpan(dest, Grid.GetColumnSpan(src)); } catch { }
+
+            // DockPanel
+            try { DockPanel.SetDock(dest, DockPanel.GetDock(src)); } catch { }
+
+            // Canvas
+            try { Canvas.SetLeft(dest, Canvas.GetLeft(src)); } catch { }
+            try { Canvas.SetTop(dest, Canvas.GetTop(src)); } catch { }
+            try { Canvas.SetRight(dest, Canvas.GetRight(src)); } catch { }
+            try { Canvas.SetBottom(dest, Canvas.GetBottom(src)); } catch { }
+
+            // ZIndex
+            try { Panel.SetZIndex(dest, Panel.GetZIndex(src)); } catch { }
+        }
+
+        private void CopyLayoutProperties(FrameworkElement dest, FrameworkElement src)
+        {
+            try { dest.Margin = src.Margin; } catch { }
+            try { dest.HorizontalAlignment = src.HorizontalAlignment; } catch { }
+            try { dest.VerticalAlignment = src.VerticalAlignment; } catch { }
+            try { dest.Width = src.Width; } catch { }
+            try { dest.Height = src.Height; } catch { }
+            try { dest.MinWidth = src.MinWidth; } catch { }
+            try { dest.MinHeight = src.MinHeight; } catch { }
+            try { dest.MaxWidth = src.MaxWidth; } catch { }
+            try { dest.MaxHeight = src.MaxHeight; } catch { }
+            try { dest.FlowDirection = src.FlowDirection; } catch { }
+            try { dest.UseLayoutRounding = src.UseLayoutRounding; } catch { }
+            try { dest.SnapsToDevicePixels = src.SnapsToDevicePixels; } catch { }
+            try { dest.ClipToBounds = src.ClipToBounds; } catch { }
+            try { dest.RenderTransformOrigin = src.RenderTransformOrigin; } catch { }
+
+            try
+            {
+                if (src.LayoutTransform is System.Windows.Media.Transform lt)
+                {
+                    dest.LayoutTransform = TryCloneTransform(lt) ?? lt;
+                }
+            }
+            catch { }
+
+            try
+            {
+                if (src.RenderTransform is System.Windows.Media.Transform rt)
+                {
+                    dest.RenderTransform = TryCloneTransform(rt) ?? rt;
+                }
+            }
+            catch { }
+        }
+
+        private System.Windows.Media.Transform TryCloneTransform(System.Windows.Media.Transform t)
+        {
+            try
+            {
+                if (t is System.Windows.Freezable f)
+                {
+                    var clone = f.CloneCurrentValue() as System.Windows.Media.Transform;
+                    return clone;
+                }
+            }
+            catch { }
+            return null;
         }
 
         private bool IsEffectivelyVisible(UIElement elem)
