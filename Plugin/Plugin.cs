@@ -78,8 +78,9 @@ namespace DualSenseBattery
     internal class FullscreenOverlayManager
     {
         private DispatcherTimer timer;
-        private FrameworkElement batteryHost; // PART_ElemBatteryStatus
-        private FrameworkElement batteryRoot; // Outer 'Battery' container when available
+        private FrameworkElement batteryHost; // theme battery content (e.g., CustomBattery/BatteryStatus)
+        private FrameworkElement batteryRoot; // theme battery container (e.g., Battery)
+        private FrameworkElement batteryPercent; // theme battery percentage text
         private FrameworkElement injected;
 
         public void Start()
@@ -92,7 +93,7 @@ namespace DualSenseBattery
             timer.Start();
         }
 
-        private void Timer_Tick(object sender, EventArgs e)
+		private void Timer_Tick(object sender, EventArgs e)
         {
             try
             {
@@ -111,7 +112,7 @@ namespace DualSenseBattery
                     return;
                 }
 
-                // Find built-in battery slot by common names (default + popular themes)
+				// Find built-in battery slot by common names (default + popular themes)
                 if (batteryHost == null)
                 {
                     // Prefer PS5 Reborn specific names first so visibility reflects its own toggle
@@ -129,19 +130,41 @@ namespace DualSenseBattery
                     // Also capture outer root when present (PS5 Reborn uses an outer 'Battery' grid)
                     batteryRoot = FindByName(main, "Battery");
                 }
-                if (batteryHost == null)
+
+				// Find percentage element by common names from default theme
+				if (batteryPercent == null)
+				{
+					batteryPercent = FindByName(main, "PART_TextBatteryPercentage")
+								 ?? FindByName(main, "TextBatteryPercentage")
+								 ?? FindByName(main, "BatteryPercentage");
+				}
+
+                // Also cache the outer container (PS5 Reborn uses Grid x:Name="Battery")
+                if (batteryRoot == null)
+                {
+                    batteryRoot = FindByName(main, "Battery") ?? FindByName(main, "BatteryContainer");
+                }
+                // If neither host nor percentage element is present, skip this tick
+                if (batteryHost == null && batteryPercent == null)
                 {
                     RemoveInjected();
                     return;
                 }
 
-                EnsureInjected(batteryHost, batteryRoot);
-                // Show ours only when the built-in one is effectively hidden (user disabled system battery)
-                var hostVisible = IsEffectivelyVisible(batteryHost as UIElement);
-                injected.Visibility = hostVisible ? Visibility.Collapsed : Visibility.Visible;
+				// Determine visibility based on theme's battery host and percentage (handles opacity/scale animations too)
+				var hostVisible = IsEffectivelyVisible(batteryHost);
+				var percentVisible = IsEffectivelyVisible(batteryPercent);
+
+                // Inject as sibling under the outer battery container so our control doesn't inherit host's Collapsed state
+                var reference = batteryHost ?? batteryPercent;
+                var parentPanel = (batteryRoot as Panel) ?? GetParentPanel(reference);
+                EnsureInjectedAsSibling(parentPanel, reference);
+
+				// Show ours only when BOTH built-in icon and percentage are hidden (user disabled both toggles)
+				injected.Visibility = (!hostVisible && !percentVisible) ? Visibility.Visible : Visibility.Collapsed;
                 if (injected is Views.AutoSystemBatteryReplacementControl ctrl)
                 {
-                    ctrl.ForceShow = injected.Visibility == Visibility.Visible;
+					ctrl.ForceShow = injected.Visibility == Visibility.Visible;
                 }
             }
             catch
@@ -150,36 +173,10 @@ namespace DualSenseBattery
             }
         }
 
-        private void EnsureInjected(FrameworkElement target, FrameworkElement root)
+        private void EnsureInjectedAsSibling(Panel parent, FrameworkElement reference)
         {
             if (injected != null) return;
-
-            // Choose container:
-            // - If target is a theme toggle container like 'CustomBattery' that may be Collapsed,
-            //   inject as a sibling under its parent (prefer the outer 'Battery' root when available)
-            // - Otherwise, inject inside the target to inherit transforms
-            Panel container = null;
-            bool injectingAsSibling = true; // default to sibling overlay for exact positioning
-            var targetName = (target as FrameworkElement)?.Name ?? string.Empty;
-            if (string.Equals(targetName, "CustomBattery", StringComparison.OrdinalIgnoreCase)
-                || string.Equals(targetName, "BatteryStatus", StringComparison.OrdinalIgnoreCase))
-            {
-                container = (root as Panel) ?? GetParentPanel(target);
-                injectingAsSibling = true;
-            }
-            else
-            {
-                // Prefer sibling overlay even for non-PS5 themes to match exact host placement
-                container = GetParentPanel(target);
-                injectingAsSibling = true;
-                if (container == null)
-                {
-                    container = (target as Panel) ?? GetParentPanel(target);
-                    injectingAsSibling = ReferenceEquals(container, target);
-                }
-            }
-
-            if (container == null) return;
+            if (parent == null) return;
 
             var control = new Views.AutoSystemBatteryReplacementControl
             {
@@ -190,17 +187,31 @@ namespace DualSenseBattery
                 Margin = new Thickness(0)
             };
 
-            // If adding as sibling, copy grid/canvas/dock position and layout of the host for 1:1 overlay
-            if (target != null)
+            // Position by copying layout and attached properties from reference for 1:1 overlay
+            if (reference != null)
             {
-                CopyAttachedLayout(control, target);
-                CopyLayoutProperties(control, target);
-                // Ensure overlay is on top of the host
-                try { Panel.SetZIndex(control, Panel.GetZIndex(target) + 1); } catch { }
+                CopyAttachedLayout(control, reference);
+                CopyLayoutProperties(control, reference);
+                try { Panel.SetZIndex(control, Panel.GetZIndex(reference) + 1); } catch { }
             }
 
-            container.Children.Add(control);
+            parent.Children.Add(control);
             injected = control;
+        }
+
+        private Panel GetParentPanel(FrameworkElement elem)
+        {
+            if (elem == null) return null;
+            DependencyObject current = elem;
+            while (current != null)
+            {
+                current = VisualTreeHelper.GetParent(current);
+                if (current is Panel p)
+                {
+                    return p;
+                }
+            }
+            return null;
         }
 
         private void RemoveInjected()
@@ -209,16 +220,6 @@ namespace DualSenseBattery
             var parent = VisualTreeHelper.GetParent(injected) as Panel;
             try { parent?.Children.Remove(injected); } catch { }
             injected = null;
-        }
-
-        private Panel GetParentPanel(DependencyObject start)
-        {
-            var cur = VisualTreeHelper.GetParent(start);
-            while (cur != null && cur is not Panel)
-            {
-                cur = VisualTreeHelper.GetParent(cur);
-            }
-            return cur as Panel;
         }
 
         private void CopyAttachedLayout(FrameworkElement dest, FrameworkElement src)
@@ -295,7 +296,8 @@ namespace DualSenseBattery
         private bool IsEffectivelyVisible(UIElement elem)
         {
             if (elem == null) return false;
-            if (elem.Visibility != Visibility.Visible || !elem.IsVisible) return false;
+            if (elem.Visibility != Visibility.Visible) return false;
+            if (!elem.IsVisible) return false;
 
             // Check opacity on element and ancestors
             double opacity = 1.0;
@@ -305,6 +307,23 @@ namespace DualSenseBattery
                 opacity *= ui.Opacity;
                 if (opacity <= 0.01) return false;
                 cur = VisualTreeHelper.GetParent(cur);
+            }
+
+            // If transformed scale is ~0, treat as hidden
+            try
+            {
+                if (elem is FrameworkElement fe && fe.RenderTransform is ScaleTransform st)
+                {
+                    if (Math.Abs(st.ScaleX) < 0.05 || Math.Abs(st.ScaleY) < 0.05)
+                        return false;
+                }
+            }
+            catch { }
+
+            // Ensure it has size when possible
+            if (elem is FrameworkElement fe2)
+            {
+                if (fe2.ActualWidth < 1 || fe2.ActualHeight < 1) return false;
             }
 
             return true;
