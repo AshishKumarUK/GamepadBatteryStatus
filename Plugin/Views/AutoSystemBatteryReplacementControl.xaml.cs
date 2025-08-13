@@ -357,8 +357,8 @@ namespace DualSenseBattery.Views
                     case BatteryChargeLevel.Low: pct = 0.3; break;
                     default: pct = 0.1; break;
                 }
-                Bar.Width = 100 * pct; // scaled down by ScaleTransform in XAML
-                Bar.Fill = level == BatteryChargeLevel.Critical ? Brushes.Red : Brushes.White;
+                BatteryFill.Width = 100 * pct; // match PS5 Reborn bar height
+                BatteryFill.Fill = level == BatteryChargeLevel.Critical ? Brushes.Red : Brushes.White;
             }
             catch { }
         }
