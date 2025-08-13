@@ -79,6 +79,7 @@ namespace DualSenseBattery
     {
         private DispatcherTimer timer;
         private FrameworkElement batteryHost; // PART_ElemBatteryStatus
+        private FrameworkElement batteryRoot; // Outer 'Battery' container when available
         private FrameworkElement injected;
 
         public void Start()
@@ -124,6 +125,9 @@ namespace DualSenseBattery
                                   ?? FindByName(main, "PS5_Battery")
                                   ?? FindByName(main, "PS5Battery")
                                   ?? FindByName(main, "Battery");
+
+                    // Also capture outer root when present (PS5 Reborn uses an outer 'Battery' grid)
+                    batteryRoot = FindByName(main, "Battery");
                 }
                 if (batteryHost == null)
                 {
@@ -131,9 +135,9 @@ namespace DualSenseBattery
                     return;
                 }
 
-                EnsureInjectedInside(batteryHost);
-                // Show ours only when the built-in one is hidden (user disabled system battery)
-                var hostVisible = (batteryHost as UIElement)?.IsVisible == true && (batteryHost as UIElement).Visibility == Visibility.Visible;
+                EnsureInjected(batteryHost, batteryRoot);
+                // Show ours only when the built-in one is effectively hidden (user disabled system battery)
+                var hostVisible = IsEffectivelyVisible(batteryHost as UIElement);
                 injected.Visibility = hostVisible ? Visibility.Collapsed : Visibility.Visible;
                 if (injected is Views.AutoSystemBatteryReplacementControl ctrl)
                 {
@@ -146,17 +150,29 @@ namespace DualSenseBattery
             }
         }
 
-        private void EnsureInjectedInside(FrameworkElement target)
+        private void EnsureInjected(FrameworkElement target, FrameworkElement root)
         {
             if (injected != null) return;
 
-            // Prefer inserting into the host itself to inherit transforms (e.g., PS5 Reborn ScaleTransform)
-            Panel container = target as Panel;
-            if (container == null)
+            // Choose container:
+            // - If target is a theme toggle container like 'CustomBattery' that may be Collapsed,
+            //   inject as a sibling under its parent (prefer the outer 'Battery' root when available)
+            // - Otherwise, inject inside the target to inherit transforms
+            Panel container = null;
+            bool injectingAsSibling = false;
+            var targetName = (target as FrameworkElement)?.Name ?? string.Empty;
+            if (string.Equals(targetName, "CustomBattery", StringComparison.OrdinalIgnoreCase)
+                || string.Equals(targetName, "BatteryStatus", StringComparison.OrdinalIgnoreCase))
             {
-                container = VisualTreeHelper.GetParent(target) as Panel;
-                if (container == null) return;
+                container = (root as Panel) ?? GetParentPanel(target);
+                injectingAsSibling = true;
             }
+            else
+            {
+                container = (target as Panel) ?? GetParentPanel(target);
+            }
+
+            if (container == null) return;
 
             var control = new Views.AutoSystemBatteryReplacementControl
             {
@@ -167,8 +183,8 @@ namespace DualSenseBattery
                 Margin = new Thickness(0)
             };
 
-            // If adding as sibling, copy grid position; if adding inside, let it fill
-            if (!ReferenceEquals(container, target))
+            // If adding as sibling, copy grid position of the original host
+            if (injectingAsSibling && target != null)
             {
                 try { Grid.SetRow(control, Grid.GetRow(target)); } catch { }
                 try { Grid.SetColumn(control, Grid.GetColumn(target)); } catch { }
@@ -186,6 +202,34 @@ namespace DualSenseBattery
             var parent = VisualTreeHelper.GetParent(injected) as Panel;
             try { parent?.Children.Remove(injected); } catch { }
             injected = null;
+        }
+
+        private Panel GetParentPanel(DependencyObject start)
+        {
+            var cur = VisualTreeHelper.GetParent(start);
+            while (cur != null && cur is not Panel)
+            {
+                cur = VisualTreeHelper.GetParent(cur);
+            }
+            return cur as Panel;
+        }
+
+        private bool IsEffectivelyVisible(UIElement elem)
+        {
+            if (elem == null) return false;
+            if (elem.Visibility != Visibility.Visible || !elem.IsVisible) return false;
+
+            // Check opacity on element and ancestors
+            double opacity = 1.0;
+            DependencyObject cur = elem;
+            while (cur is UIElement ui)
+            {
+                opacity *= ui.Opacity;
+                if (opacity <= 0.01) return false;
+                cur = VisualTreeHelper.GetParent(cur);
+            }
+
+            return true;
         }
 
         private FrameworkElement FindByName(DependencyObject root, string name)
