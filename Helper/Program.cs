@@ -19,16 +19,16 @@ static class Program
 			// enable debug logs on stderr
 			s_debug = args != null && args.Any(a => string.Equals(a, "--debug", StringComparison.OrdinalIgnoreCase));
 			// Prefer DS4Windows UDP first: DS4Windows often hides native HID
-			if (TryDs4WindowsUdp(out int level, out bool charging, out bool full))
+            if (TryDs4WindowsUdp(out int level, out bool charging, out bool full, out bool isBt))
             {
-                PrintJson(true, level, charging, full);
+                PrintJson(true, level, charging, full, isBt, isBt ? "bluetooth" : "usb");
                 return;
             }
 
 			// Fallback: native DualSense HID
-			if (TryDualSenseHid(out level, out charging, out full))
+            if (TryDualSenseHid(out level, out charging, out full))
 			{
-				PrintJson(true, level, charging, full);
+                PrintJson(true, level, charging, full, false, null);
 				return;
 			}
 
@@ -50,14 +50,16 @@ static class Program
 		}
 	}
 
-    private static void PrintJson(bool connected, int level, bool charging, bool full)
+    private static void PrintJson(bool connected, int level, bool charging, bool full, bool? bt = null, string connection = null)
     {
         Console.WriteLine(JsonSerializer.Serialize(new
         {
             connected,
             level,
             charging,
-            full
+            full,
+            bt,
+            connection
         }));
     }
 
@@ -103,9 +105,9 @@ static class Program
 
     // ---------- DS4Windows UDP (Cemuhook / DSU) ----------
     // Proper flow: REGISTER client, then INFO request, then read response.
-    private static bool TryDs4WindowsUdp(out int levelPercent, out bool charging, out bool full)
+    private static bool TryDs4WindowsUdp(out int levelPercent, out bool charging, out bool full, out bool isBluetooth)
     {
-        levelPercent = 0; charging = false; full = false;
+        levelPercent = 0; charging = false; full = false; isBluetooth = false;
 
         const string host = "127.0.0.1";
         const int port = 26760;
@@ -172,6 +174,9 @@ static class Program
                 // meta layout: [20]slot [21]state [22]model [23]connType [24..29]mac [30]battery
                 byte state = resp[21]; // 2 = connected
                 if (state != 2) { DebugLog($"DSU: state {state} not connected"); continue; }
+
+                byte conn = resp[23]; // 0 = USB, 1 = Bluetooth
+                isBluetooth = conn == 1;
 
                 byte b = resp[30];
                 MapDsuBattery(b, out levelPercent, out charging, out full);

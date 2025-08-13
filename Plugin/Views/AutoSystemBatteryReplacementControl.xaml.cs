@@ -277,7 +277,8 @@ namespace DualSenseBattery.Views
                 {
                     Connected = json.IndexOf("\"connected\":true", StringComparison.OrdinalIgnoreCase) >= 0,
                     Charging = json.IndexOf("\"charging\":true", StringComparison.OrdinalIgnoreCase) >= 0,
-                    Full = json.IndexOf("\"full\":true", StringComparison.OrdinalIgnoreCase) >= 0
+                    Full = json.IndexOf("\"full\":true", StringComparison.OrdinalIgnoreCase) >= 0,
+                    Bluetooth = json.IndexOf("\"bt\":true", StringComparison.OrdinalIgnoreCase) >= 0
                 };
 
                 r.Level = ExtractInt(json, "\"level\":");
@@ -375,6 +376,7 @@ namespace DualSenseBattery.Views
             public int Level { get; set; }     // 0–100
             public bool Charging { get; set; }
             public bool Full { get; set; }
+            public bool Bluetooth { get; set; }
         }
     }
 }

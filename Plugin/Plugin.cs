@@ -12,6 +12,7 @@ using System.Diagnostics;
 using System.IO;
 using System.Windows;
 using System.Windows.Threading;
+using System.Windows.Media;
 
 namespace DualSenseBattery
 {
@@ -76,9 +77,9 @@ namespace DualSenseBattery
 
     internal class FullscreenOverlayManager
     {
-        private Window overlay;
         private DispatcherTimer timer;
-        private const double MarginFromEdges = 16.0;
+        private FrameworkElement batteryHost; // PART_ElemBatteryStatus
+        private FrameworkElement injected;
 
         public void Start()
         {
@@ -97,7 +98,7 @@ namespace DualSenseBattery
                 var main = Application.Current?.MainWindow;
                 if (main == null)
                 {
-                    HideOverlay();
+                    RemoveInjected();
                     return;
                 }
 
@@ -105,12 +106,31 @@ namespace DualSenseBattery
                 var isFullscreen = main.GetType().FullName?.IndexOf("FullscreenApp", StringComparison.OrdinalIgnoreCase) >= 0;
                 if (!isFullscreen)
                 {
-                    HideOverlay();
+                    RemoveInjected();
                     return;
                 }
 
-                ShowOverlay(main);
-                PositionOverlay(main);
+                // Find built-in battery slot by common names (default + popular themes)
+                if (batteryHost == null)
+                {
+                    batteryHost = FindByName(main, "PART_ElemBatteryStatus")
+                                  ?? FindByName(main, "ElemBatteryStatus")
+                                  ?? FindByName(main, "PART_BatteryStatus")
+                                  ?? FindByName(main, "BatteryStatus")
+                                  ?? FindByName(main, "PART_PS_Battery")
+                                  ?? FindByName(main, "PSBattery")
+                                  ?? FindByName(main, "PS5_Battery")
+                                  ?? FindByName(main, "PS5Battery");
+                }
+                if (batteryHost == null)
+                {
+                    RemoveInjected();
+                    return;
+                }
+
+                EnsureInjectedBeside(batteryHost);
+                // Show ours only when the built-in one is hidden (user disabled system battery)
+                injected.Visibility = (batteryHost as UIElement)?.IsVisible == true ? Visibility.Collapsed : Visibility.Visible;
             }
             catch
             {
@@ -118,47 +138,59 @@ namespace DualSenseBattery
             }
         }
 
-        private void ShowOverlay(Window owner)
+        private void EnsureInjectedBeside(FrameworkElement target)
         {
-            if (overlay != null)
-            {
-                if (!overlay.IsVisible)
-                {
-                    overlay.Show();
-                }
-                return;
-            }
+            if (injected != null) return;
 
-            overlay = new Window
+            var parent = VisualTreeHelper.GetParent(target) as Panel;
+            if (parent == null) return;
+
+            var control = new Views.AutoSystemBatteryReplacementControl
             {
-                Width = 48,
-                Height = 48,
-                WindowStyle = WindowStyle.None,
-                ResizeMode = ResizeMode.NoResize,
-                ShowInTaskbar = false,
-                Topmost = true,
-                Background = System.Windows.Media.Brushes.Transparent,
-                AllowsTransparency = true,
-                Content = new Views.AutoSystemBatteryReplacementControl()
+                IsHitTestVisible = false,
+                Focusable = false,
+                HorizontalAlignment = target.HorizontalAlignment,
+                VerticalAlignment = target.VerticalAlignment,
+                Margin = target.Margin
             };
 
-            try { overlay.Owner = owner; } catch { }
-            overlay.Show();
-        }
-
-        private void PositionOverlay(Window owner)
-        {
-            if (overlay == null || owner == null) return;
-            overlay.Top = owner.Top + MarginFromEdges;
-            overlay.Left = owner.Left + Math.Max(0, owner.Width - overlay.Width - MarginFromEdges);
-        }
-
-        private void HideOverlay()
-        {
-            if (overlay != null)
+            // Copy Grid position if applicable
+            if (target is FrameworkElement fe)
             {
-                try { overlay.Hide(); } catch { }
+                try { Grid.SetRow(control, Grid.GetRow(fe)); } catch { }
+                try { Grid.SetColumn(control, Grid.GetColumn(fe)); } catch { }
+                try { Grid.SetRowSpan(control, Grid.GetRowSpan(fe)); } catch { }
+                try { Grid.SetColumnSpan(control, Grid.GetColumnSpan(fe)); } catch { }
             }
+
+            parent.Children.Add(control);
+            injected = control;
+        }
+
+        private void RemoveInjected()
+        {
+            if (injected == null) return;
+            var parent = VisualTreeHelper.GetParent(injected) as Panel;
+            try { parent?.Children.Remove(injected); } catch { }
+            injected = null;
+        }
+
+        private FrameworkElement FindByName(DependencyObject root, string name)
+        {
+            if (root is FrameworkElement fe && fe.Name == name)
+            {
+                return fe;
+            }
+
+            int count = VisualTreeHelper.GetChildrenCount(root);
+            for (int i = 0; i < count; i++)
+            {
+                var child = VisualTreeHelper.GetChild(root, i);
+                var found = FindByName(child, name);
+                if (found != null) return found;
+            }
+
+            return null;
         }
     }
 
