@@ -1,4 +1,5 @@
 using Playnite.SDK.Controls;
+using Playnite.SDK;
 using System;
 using System.Diagnostics;
 using System.IO;
@@ -77,6 +78,63 @@ namespace DualSenseBattery.Views
             {
                 try { Dispatcher.Invoke(() => Timer_Tick(null, EventArgs.Empty)); } catch { /* ignored */ }
             });
+        }
+
+        public void ApplyReferenceVisual(FrameworkElement reference)
+        {
+            try
+            {
+                if (reference == null)
+                {
+                    return;
+                }
+
+                // Copy placement-related properties
+                try { this.Margin = reference.Margin; } catch { }
+                try { this.HorizontalAlignment = reference.HorizontalAlignment; } catch { }
+                try { this.VerticalAlignment = reference.VerticalAlignment; } catch { }
+
+                // Copy transforms cautiously: avoid applying extreme scales to glyph
+                try
+                {
+                    if (reference.RenderTransform is Transform rt)
+                    {
+                        if (rt is ScaleTransform st && (st.ScaleX < 0.5 || st.ScaleY < 0.5))
+                        {
+                            // Skip extreme downscales on icon; keep it readable
+                        }
+                        else
+                        {
+                            Icon.RenderTransform = rt;
+                        }
+                    }
+                }
+                catch { }
+
+                try
+                {
+                    if (reference.LayoutTransform is Transform lt)
+                    {
+                        Icon.LayoutTransform = lt;
+                    }
+                }
+                catch { }
+
+                // If reference has explicit size, mirror it
+                try
+                {
+                    if (!double.IsNaN(reference.Width) && reference.Width > 0)
+                    {
+                        this.Width = reference.Width;
+                    }
+                    if (!double.IsNaN(reference.Height) && reference.Height > 0)
+                    {
+                        this.Height = reference.Height;
+                    }
+                }
+                catch { }
+            }
+            catch { }
         }
 
         private void SettingsCheckTimer_Tick(object sender, EventArgs e)
@@ -322,40 +380,53 @@ namespace DualSenseBattery.Views
                                     : level == BatteryChargeLevel.Low ? "BatteryStatusLow"
                                     : "BatteryStatusCritical");
 
-            var res = TryFindResource(key) as TextBlock;
+            // Prefer global theme resource lookup via Playnite's ResourceProvider
+            TextBlock res = null;
+            try
+            {
+                var fromProvider = ResourceProvider.GetResource(key);
+                res = fromProvider as TextBlock;
+            }
+            catch { }
+            if (res == null)
+            {
+                res = TryFindResource(key) as TextBlock;
+            }
             if (res != null)
             {
                 Icon.Text = res.Text;
                 Icon.FontFamily = res.FontFamily;
-                Icon.FontSize = res.FontSize > 0 ? res.FontSize : 42; // PS5 Reborn uses ~42
-                if (res.Foreground != null)
-                {
-                    Icon.Foreground = res.Foreground;
-                }
-                // Apply theme-like drop shadow for legibility
+                Icon.FontSize = res.FontSize > 0 ? res.FontSize : 42;
+                if (res.Foreground != null) { Icon.Foreground = res.Foreground; }
                 Icon.Effect = new System.Windows.Media.Effects.DropShadowEffect { BlurRadius = 5, ShadowDepth = 0 };
-                // Margin: keep default unless resource overrides
-                if (res.Margin != default(Thickness))
-                {
-                    Icon.Margin = res.Margin;
-                }
+                Icon.Margin = res.Margin;
+                return;
             }
 
             // PS5 Reborn fallback using Segoe Fluent Icons glyphs
             if (res == null)
             {
-                Icon.Text = "\ue850";
-                Icon.FontFamily = new FontFamily("Segoe Fluent Icons");
+                // Try using FontIcoFont with theme glyph codes
+                string glyph = charging ? "\ueed4"
+                              : (level == BatteryChargeLevel.High ? "\ueeb2"
+                                : level == BatteryChargeLevel.Medium ? "\ueeb3"
+                                : level == BatteryChargeLevel.Low ? "\ueeb4"
+                                : "\ueeb1");
+                Icon.Text = glyph;
+                try
+                {
+                    var fontRes = ResourceProvider.GetResource("FontIcoFont") as FontFamily;
+                    Icon.FontFamily = fontRes ?? new FontFamily("FontIcoFont");
+                }
+                catch
+                {
+                    Icon.FontFamily = new FontFamily("FontIcoFont");
+                }
+                Icon.FontSize = 42;
                 Icon.Foreground = Brushes.White;
                 Icon.Effect = new System.Windows.Media.Effects.DropShadowEffect { BlurRadius = 5, ShadowDepth = 0 };
+                return;
             }
-
-            // Critical level in default theme is forced Red
-            if (level == BatteryChargeLevel.Critical)
-            {
-                Icon.Foreground = Brushes.Red;
-            }
-
             // Keep bar hidden by default (we only need glyph for PS5 Reborn)
         }
 

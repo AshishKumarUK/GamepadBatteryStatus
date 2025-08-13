@@ -170,6 +170,10 @@ namespace DualSenseBattery
                     var refElem = FindByName(batteryRoot, "BatteryStatus") ?? batteryRoot;
                     var parent = (batteryRoot as Panel) ?? GetParentPanel(refElem);
                     EnsureInjectedInside(parent, refElem);
+                    if (injected is Views.AutoSystemBatteryReplacementControl c1 && refElem != null)
+                    {
+                        c1.ApplyReferenceVisual(refElem);
+                    }
 
                     // Force show ours in this mode
                     injected.Visibility = Visibility.Visible;
@@ -184,6 +188,10 @@ namespace DualSenseBattery
                     var reference = batteryHost ?? batteryPercent;
                     var parentPanel = (batteryRoot as Panel) ?? GetParentPanel(reference);
                     EnsureInjectedAsSibling(parentPanel, reference);
+                    if (injected is Views.AutoSystemBatteryReplacementControl c2 && reference != null)
+                    {
+                        c2.ApplyReferenceVisual(reference);
+                    }
 
 					injected.Visibility = (!hostVisible && !percentVisible) ? Visibility.Visible : Visibility.Collapsed;
                     if (injected is Views.AutoSystemBatteryReplacementControl ctrl)
