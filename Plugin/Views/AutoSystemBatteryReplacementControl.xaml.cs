@@ -48,6 +48,9 @@ namespace DualSenseBattery.Views
                 powerStatus = new DualSensePowerStatus();
             }
 
+            // Match theme icon sizing by borrowing the same resource as the system battery
+            TryBindThemeIcon(BatteryChargeLevel.Critical); // initial placeholder
+
             // Background timer (UI thread tick; actual work is off-thread)
             timer = new System.Windows.Threading.DispatcherTimer
             {
@@ -355,19 +358,61 @@ namespace DualSenseBattery.Views
             lastFull = r.Full;
             firstApplied = true;
 
-            // Update UI - mimic Playnite's system battery display
-            Txt.Text = r.Full ? "100%" : $"{r.Level}%";
-            Bolt.Visibility = r.Charging ? Visibility.Visible : Visibility.Collapsed;
-
-            // Fill bar inside 22x11 icon (margins: 1.2 left, 3.6 right)
-            double maxFill = 22.0 - (1.2 + 3.6); // ~17.2 px
-            BatteryFill.Width = Math.Max(0, maxFill * (r.Level / 100.0));
-            BatteryFill.Opacity = r.Level > 0 ? 1.0 : 0.35;
+            // Update icon to the same glyph the theme uses
+            var charge = r.Full ? BatteryChargeLevel.High : GetLevel(r.Level);
+            SetThemeIcon(charge, r.Charging);
 
             // Update shared power status
             if (powerStatus != null)
             {
                 powerStatus.UpdateBatteryStatus(r.Connected, r.Level, r.Charging);
+            }
+        }
+
+        private BatteryChargeLevel GetLevel(int percent)
+        {
+            if (percent > 85) return BatteryChargeLevel.High;
+            if (percent > 40) return BatteryChargeLevel.Medium;
+            if (percent > 10) return BatteryChargeLevel.Low;
+            return BatteryChargeLevel.Critical;
+        }
+
+        private void TryBindThemeIcon(BatteryChargeLevel level, bool charging = false)
+        {
+            try
+            {
+                SetThemeIcon(level, charging);
+            }
+            catch { }
+        }
+
+        private void SetThemeIcon(BatteryChargeLevel level, bool charging)
+        {
+            // PS5 Reborn and default theme expose BatteryStatus* text blocks as resources in the window resources
+            string key = charging
+                ? "BatteryStatusCharging"
+                : (level == BatteryChargeLevel.High ? "BatteryStatusHigh"
+                   : level == BatteryChargeLevel.Medium ? "BatteryStatusMedium"
+                   : level == BatteryChargeLevel.Low ? "BatteryStatusLow"
+                   : "BatteryStatusCritical");
+
+            var res = TryFindResource(key) as TextBlock;
+            if (res != null)
+            {
+                Icon.Text = res.Text;
+                Icon.FontFamily = res.FontFamily;
+                Icon.FontSize = res.FontSize;
+                Icon.Foreground = res.Foreground;
+            }
+            else
+            {
+                // Fallback to IcoFont
+                Icon.Text = charging ? "\ueed4" : (level == BatteryChargeLevel.High ? "\ueeb2"
+                                    : level == BatteryChargeLevel.Medium ? "\ueeb3"
+                                    : level == BatteryChargeLevel.Low ? "\ueeb4" : "\ueeb1");
+                Icon.FontFamily = (FontFamily)FindResource("FontIcoFont");
+                Icon.FontSize = 42;
+                Icon.Foreground = (Brush)FindResource("TextBrush");
             }
         }
 

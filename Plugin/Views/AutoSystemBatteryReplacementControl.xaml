@@ -8,56 +8,7 @@
              d:DesignHeight="42" d:DesignWidth="42">
     
     <Grid x:Name="ContentRoot" Visibility="Collapsed">
-        <!-- Battery Icon Container -->
-        <Grid Width="42" Height="42" HorizontalAlignment="Center" VerticalAlignment="Center">
-            
-            <!-- Battery Icon Background -->
-            <Grid Width="22" Height="11" 
-                  HorizontalAlignment="Center" 
-                  VerticalAlignment="Center">
-                
-                <!-- Battery Background Border -->
-                <Border BorderBrush="{DynamicResource TextBrush}" 
-                        BorderThickness="1.5" 
-                        CornerRadius="1"
-                        Background="Transparent"/>
-                
-                <!-- Battery Fill -->
-                <Border x:Name="BatteryFill" 
-                        HorizontalAlignment="Left" 
-                        VerticalAlignment="Stretch"
-                        Background="{DynamicResource TextBrush}"
-                        CornerRadius="0.5"
-                        Margin="1.2,1.5,0,1.5"
-                        Width="0"/>
-                
-                <!-- Battery Terminal -->
-                <Border Width="2" Height="4" 
-                        Background="{DynamicResource TextBrush}"
-                        HorizontalAlignment="Right"
-                        VerticalAlignment="Center"
-                        Margin="0,0,-3,0"/>
-            </Grid>
-            
-            <!-- Charging Icon -->
-            <TextBlock x:Name="Bolt" 
-                       Text="&#xeed4;" 
-                       FontFamily="{DynamicResource FontIcoFont}"
-                       FontSize="16"
-                       Foreground="{DynamicResource TextBrush}"
-                       HorizontalAlignment="Center"
-                       VerticalAlignment="Center"
-                       Visibility="Collapsed"/>
-        </Grid>
-        
-        <!-- Battery Percentage Text -->
-        <TextBlock x:Name="Txt" 
-                   Text="0%" 
-                   FontSize="12"
-                   Foreground="{DynamicResource TextBrush}"
-                   HorizontalAlignment="Center"
-                   VerticalAlignment="Center"
-                   Margin="0,0,0,0"
-                   Visibility="Collapsed"/>
+        <!-- We replicate the exact theme icon by copying properties from theme resources (BatteryStatus*) at runtime -->
+        <TextBlock x:Name="Icon" HorizontalAlignment="Center" VerticalAlignment="Center"/>
     </Grid>
 </playniteControls:PluginUserControl>
