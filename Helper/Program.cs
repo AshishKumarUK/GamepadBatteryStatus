@@ -18,19 +18,19 @@ static class Program
         {
 			// enable debug logs on stderr
 			s_debug = args != null && args.Any(a => string.Equals(a, "--debug", StringComparison.OrdinalIgnoreCase));
-            // 1) Try native DualSense HID first
-            if (TryDualSenseHid(out int level, out bool charging, out bool full))
+			// Prefer DS4Windows UDP first: DS4Windows often hides native HID
+			if (TryDs4WindowsUdp(out int level, out bool charging, out bool full))
             {
                 PrintJson(true, level, charging, full);
                 return;
             }
 
-			// 2) Fallback: DS4Windows UDP (Cemuhook / DSU)
-            if (TryDs4WindowsUdp(out level, out charging, out full))
-            {
-                PrintJson(true, level, charging, full);
-                return;
-            }
+			// Fallback: native DualSense HID
+			if (TryDualSenseHid(out level, out charging, out full))
+			{
+				PrintJson(true, level, charging, full);
+				return;
+			}
 
             // 3) Nothing worked
             Console.WriteLine(JsonSerializer.Serialize(new { connected = false }));
@@ -130,15 +130,20 @@ static class Program
         try
         {
             using var udp = new UdpClient();
-            udp.Client.ReceiveTimeout = 400;
+			udp.Client.ReceiveTimeout = 2000;
             udp.Connect(host, port);
+            // Send REGISTER once
             udp.Send(regPacket, regPacket.Length);
-            // brief pause, then INFO
             Thread.Sleep(50);
-            udp.Send(infoPacket, infoPacket.Length);
+            // Send INFO a few times to coax a response
+            for (int i = 0; i < 3; i++)
+            {
+                udp.Send(infoPacket, infoPacket.Length);
+                Thread.Sleep(50);
+            }
 
             var start = Environment.TickCount;
-            while (Environment.TickCount - start < 1000)
+            while (Environment.TickCount - start < 2000)
             {
                 if (udp.Available <= 0)
                 {
@@ -148,28 +153,37 @@ static class Program
 
                 IPEndPoint ep = new IPEndPoint(IPAddress.Any, 0);
                 var resp = udp.Receive(ref ep);
-                if (resp.Length < 32) continue;
+                DebugLog($"DSU: received {resp.Length} bytes from {ep}");
+                if (resp.Length < 32) { DebugLog("DSU: response too short"); continue; }
 
                 // expect "DSUS" response
                 if (resp[0] != (byte)'D' || resp[1] != (byte)'S' || resp[2] != (byte)'U' || resp[3] != (byte)'S')
+                {
+                    DebugLog("DSU: wrong magic header");
                     continue;
+                }
 
                 // correct protocol?
-                if (BitConverter.ToUInt16(resp, 4) != proto) continue;
+                if (BitConverter.ToUInt16(resp, 4) != proto) { DebugLog("DSU: protocol mismatch"); continue; }
 
                 // only parse INFO messages for battery
-                if (BitConverter.ToUInt32(resp, 16) != MSG_INFO) continue;
+                if (BitConverter.ToUInt32(resp, 16) != MSG_INFO) { DebugLog("DSU: not INFO message"); continue; }
 
                 // meta layout: [20]slot [21]state [22]model [23]connType [24..29]mac [30]battery
                 byte state = resp[21]; // 2 = connected
-                if (state != 2) continue;
+                if (state != 2) { DebugLog($"DSU: state {state} not connected"); continue; }
 
                 byte b = resp[30];
                 MapDsuBattery(b, out levelPercent, out charging, out full);
 
                 if (levelPercent > 0 || charging || full)
+                {
+                    DebugLog($"DSU: battery code {b}, mapped {levelPercent}% charging={charging} full={full}");
                     return true;
+                }
             }
+
+            DebugLog("DSU: no valid INFO response within timeout");
         }
         catch
         {
