@@ -141,7 +141,8 @@ namespace DualSenseBattery
                 {
                     batteryRoot = FindByName(main, "Battery") ?? FindByName(main, "BatteryContainer");
                 }
-                if (batteryHost == null)
+                // If neither host nor percentage element is present, skip this tick
+                if (batteryHost == null && batteryPercent == null)
                 {
                     RemoveInjected();
                     return;
@@ -152,8 +153,9 @@ namespace DualSenseBattery
 				var percentVisible = IsEffectivelyVisible(batteryPercent);
 
                 // Inject as sibling under the outer battery container so our control doesn't inherit host's Collapsed state
-                var parentPanel = (batteryRoot as Panel) ?? GetParentPanel(batteryHost);
-                EnsureInjectedAsSibling(parentPanel, batteryHost);
+                var reference = batteryHost ?? batteryPercent;
+                var parentPanel = (batteryRoot as Panel) ?? GetParentPanel(reference);
+                EnsureInjectedAsSibling(parentPanel, reference);
 
 				// Show ours only when BOTH built-in icon and percentage are hidden (user disabled both toggles)
 				injected.Visibility = (!hostVisible && !percentVisible) ? Visibility.Visible : Visibility.Collapsed;
