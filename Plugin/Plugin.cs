@@ -80,7 +80,7 @@ namespace DualSenseBattery
         private DispatcherTimer timer;
         private FrameworkElement batteryHost; // theme battery content (e.g., CustomBattery/BatteryStatus)
         private FrameworkElement batteryRoot; // theme battery container (e.g., Battery)
-		private FrameworkElement batteryPercent; // theme battery percentage text
+        private FrameworkElement batteryPercent; // theme battery percentage text
         private FrameworkElement injected;
 
         public void Start()
@@ -126,6 +126,9 @@ namespace DualSenseBattery
                                   ?? FindByName(main, "PS5_Battery")
                                   ?? FindByName(main, "PS5Battery")
                                   ?? FindByName(main, "Battery");
+
+                    // Also capture outer root when present (PS5 Reborn uses an outer 'Battery' grid)
+                    batteryRoot = FindByName(main, "Battery");
                 }
 
 				// Find percentage element by common names from default theme
@@ -184,19 +187,12 @@ namespace DualSenseBattery
                 Margin = new Thickness(0)
             };
 
-            // Position by copying grid placement from reference
+            // Position by copying layout and attached properties from reference for 1:1 overlay
             if (reference != null)
             {
-                try { Grid.SetRow(control, Grid.GetRow(reference)); } catch { }
-                try { Grid.SetColumn(control, Grid.GetColumn(reference)); } catch { }
-                try { Grid.SetRowSpan(control, Grid.GetRowSpan(reference)); } catch { }
-                try { Grid.SetColumnSpan(control, Grid.GetColumnSpan(reference)); } catch { }
-
-                // If reference has RenderTransform (e.g., ScaleTransform), reuse it for consistent sizing
-                try { control.RenderTransform = reference.RenderTransform; } catch { }
-                try { control.Margin = reference.Margin; } catch { }
-                try { control.HorizontalAlignment = reference.HorizontalAlignment; } catch { }
-                try { control.VerticalAlignment = reference.VerticalAlignment; } catch { }
+                CopyAttachedLayout(control, reference);
+                CopyLayoutProperties(control, reference);
+                try { Panel.SetZIndex(control, Panel.GetZIndex(reference) + 1); } catch { }
             }
 
             parent.Children.Add(control);
@@ -218,33 +214,119 @@ namespace DualSenseBattery
             return null;
         }
 
-        private bool IsEffectivelyVisible(FrameworkElement elem)
-        {
-            if (elem == null) return false;
-            if (elem.Visibility != Visibility.Visible) return false;
-            if (!elem.IsVisible) return false;
-            if (elem.Opacity <= 0.01) return false;
-            // If transformed scale is ~0, treat as hidden
-            try
-            {
-                if (elem.RenderTransform is ScaleTransform st)
-                {
-                    if (Math.Abs(st.ScaleX) < 0.05 || Math.Abs(st.ScaleY) < 0.05)
-                        return false;
-                }
-            }
-            catch { }
-            // Ensure it has size
-            if (elem.ActualWidth < 1 || elem.ActualHeight < 1) return false;
-            return true;
-        }
-
         private void RemoveInjected()
         {
             if (injected == null) return;
             var parent = VisualTreeHelper.GetParent(injected) as Panel;
             try { parent?.Children.Remove(injected); } catch { }
             injected = null;
+        }
+
+        private void CopyAttachedLayout(FrameworkElement dest, FrameworkElement src)
+        {
+            // Grid
+            try { Grid.SetRow(dest, Grid.GetRow(src)); } catch { }
+            try { Grid.SetColumn(dest, Grid.GetColumn(src)); } catch { }
+            try { Grid.SetRowSpan(dest, Grid.GetRowSpan(src)); } catch { }
+            try { Grid.SetColumnSpan(dest, Grid.GetColumnSpan(src)); } catch { }
+
+            // DockPanel
+            try { DockPanel.SetDock(dest, DockPanel.GetDock(src)); } catch { }
+
+            // Canvas
+            try { Canvas.SetLeft(dest, Canvas.GetLeft(src)); } catch { }
+            try { Canvas.SetTop(dest, Canvas.GetTop(src)); } catch { }
+            try { Canvas.SetRight(dest, Canvas.GetRight(src)); } catch { }
+            try { Canvas.SetBottom(dest, Canvas.GetBottom(src)); } catch { }
+
+            // ZIndex
+            try { Panel.SetZIndex(dest, Panel.GetZIndex(src)); } catch { }
+        }
+
+        private void CopyLayoutProperties(FrameworkElement dest, FrameworkElement src)
+        {
+            try { dest.Margin = src.Margin; } catch { }
+            try { dest.HorizontalAlignment = src.HorizontalAlignment; } catch { }
+            try { dest.VerticalAlignment = src.VerticalAlignment; } catch { }
+            try { dest.Width = src.Width; } catch { }
+            try { dest.Height = src.Height; } catch { }
+            try { dest.MinWidth = src.MinWidth; } catch { }
+            try { dest.MinHeight = src.MinHeight; } catch { }
+            try { dest.MaxWidth = src.MaxWidth; } catch { }
+            try { dest.MaxHeight = src.MaxHeight; } catch { }
+            try { dest.FlowDirection = src.FlowDirection; } catch { }
+            try { dest.UseLayoutRounding = src.UseLayoutRounding; } catch { }
+            try { dest.SnapsToDevicePixels = src.SnapsToDevicePixels; } catch { }
+            try { dest.ClipToBounds = src.ClipToBounds; } catch { }
+            try { dest.RenderTransformOrigin = src.RenderTransformOrigin; } catch { }
+
+            try
+            {
+                if (src.LayoutTransform is System.Windows.Media.Transform lt)
+                {
+                    dest.LayoutTransform = TryCloneTransform(lt) ?? lt;
+                }
+            }
+            catch { }
+
+            try
+            {
+                if (src.RenderTransform is System.Windows.Media.Transform rt)
+                {
+                    dest.RenderTransform = TryCloneTransform(rt) ?? rt;
+                }
+            }
+            catch { }
+        }
+
+        private System.Windows.Media.Transform TryCloneTransform(System.Windows.Media.Transform t)
+        {
+            try
+            {
+                if (t is System.Windows.Freezable f)
+                {
+                    var clone = f.CloneCurrentValue() as System.Windows.Media.Transform;
+                    return clone;
+                }
+            }
+            catch { }
+            return null;
+        }
+
+        private bool IsEffectivelyVisible(UIElement elem)
+        {
+            if (elem == null) return false;
+            if (elem.Visibility != Visibility.Visible) return false;
+            if (!elem.IsVisible) return false;
+
+            // Check opacity on element and ancestors
+            double opacity = 1.0;
+            DependencyObject cur = elem;
+            while (cur is UIElement ui)
+            {
+                opacity *= ui.Opacity;
+                if (opacity <= 0.01) return false;
+                cur = VisualTreeHelper.GetParent(cur);
+            }
+
+            // If transformed scale is ~0, treat as hidden
+            try
+            {
+                if (elem is FrameworkElement fe && fe.RenderTransform is ScaleTransform st)
+                {
+                    if (Math.Abs(st.ScaleX) < 0.05 || Math.Abs(st.ScaleY) < 0.05)
+                        return false;
+                }
+            }
+            catch { }
+
+            // Ensure it has size when possible
+            if (elem is FrameworkElement fe2)
+            {
+                if (fe2.ActualWidth < 1 || fe2.ActualHeight < 1) return false;
+            }
+
+            return true;
         }
 
         private FrameworkElement FindByName(DependencyObject root, string name)
