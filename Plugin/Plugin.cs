@@ -81,7 +81,9 @@ namespace DualSenseBattery
         private FrameworkElement batteryHost; // theme battery content (e.g., CustomBattery/BatteryStatus)
         private FrameworkElement batteryRoot; // theme battery container (e.g., Battery)
         private FrameworkElement batteryPercent; // theme battery percentage text
-        private FrameworkElement injected;
+		private FrameworkElement injected;
+		private PowerStatusBindingProxy bindingProxy;
+		private DualSensePowerStatus dualSenseStatus;
 
         public void Start()
         {
@@ -91,6 +93,10 @@ namespace DualSenseBattery
             };
             timer.Tick += Timer_Tick;
             timer.Start();
+
+			// Initialize DualSense power status and binding proxy for default-theme rendering
+			dualSenseStatus = new DualSensePowerStatus();
+			bindingProxy = new PowerStatusBindingProxy(dualSenseStatus);
         }
 
 		private void Timer_Tick(object sender, EventArgs e)
@@ -151,54 +157,16 @@ namespace DualSenseBattery
                     return;
                 }
 
-				// Determine visibility based on theme's battery host and percentage (handles opacity/scale animations too)
-				var hostVisible = IsEffectivelyVisible(batteryHost);
-				var percentVisible = IsEffectivelyVisible(batteryPercent);
-
-                // PS5 Reborn: replace system battery with our control
-                bool isPs5Reborn = batteryRoot is FrameworkElement br && string.Equals(br.Name, "Battery", StringComparison.OrdinalIgnoreCase);
-                if (isPs5Reborn)
-                {
-                    // Hide theme battery
-                    var customBattery = FindByName(batteryRoot, "CustomBattery") as FrameworkElement;
-                    if (customBattery != null)
-                    {
-                        try { customBattery.Visibility = Visibility.Collapsed; } catch { }
-                    }
-
-                    // Use inner BatteryStatus as reference to copy transform/margins for exact sizing
-                    var refElem = FindByName(batteryRoot, "BatteryStatus") ?? batteryRoot;
-                    var parent = (batteryRoot as Panel) ?? GetParentPanel(refElem);
-                    EnsureInjectedInside(parent, refElem);
-                    if (injected is Views.AutoSystemBatteryReplacementControl c1 && refElem != null)
-                    {
-                        c1.ApplyReferenceVisual(refElem);
-                    }
-
-                    // Force show ours in this mode
-                    injected.Visibility = Visibility.Visible;
-                    if (injected is Views.AutoSystemBatteryReplacementControl ctrl)
-                    {
-                        ctrl.ForceShow = true;
-                    }
-                }
-                else
-                {
-                    // Other themes: inject as sibling next to the host and only show if built-in is hidden
-                    var reference = batteryHost ?? batteryPercent;
-                    var parentPanel = (batteryRoot as Panel) ?? GetParentPanel(reference);
-                    EnsureInjectedAsSibling(parentPanel, reference);
-                    if (injected is Views.AutoSystemBatteryReplacementControl c2 && reference != null)
-                    {
-                        c2.ApplyReferenceVisual(reference);
-                    }
-
-					injected.Visibility = (!hostVisible && !percentVisible) ? Visibility.Visible : Visibility.Collapsed;
-                    if (injected is Views.AutoSystemBatteryReplacementControl ctrl)
-                    {
-						ctrl.ForceShow = injected.Visibility == Visibility.Visible;
-                    }
-                }
+				// New approach: Feed our PowerStatus to the theme battery controls and avoid overlays
+				RemoveInjected();
+				var targets = new List<FrameworkElement>();
+				if (batteryHost != null) targets.Add(batteryHost);
+				if (batteryRoot != null) targets.Add(batteryRoot);
+				if (batteryPercent != null) targets.Add(batteryPercent);
+				foreach (var t in targets)
+				{
+					try { t.DataContext = bindingProxy; } catch { }
+				}
             }
             catch
             {
