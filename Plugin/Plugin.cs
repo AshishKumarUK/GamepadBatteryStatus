@@ -142,7 +142,8 @@ namespace DualSenseBattery
                 var hostVisible = (batteryHost as UIElement)?.IsVisible == true && (batteryHost as UIElement).Visibility == Visibility.Visible;
 
                 // Inject as sibling under the outer battery container so our control doesn't inherit host's Collapsed state
-                EnsureInjectedAsSibling(batteryRoot ?? GetParentPanel(batteryHost), batteryHost);
+                var parentPanel = (batteryRoot as Panel) ?? GetParentPanel(batteryHost);
+                EnsureInjectedAsSibling(parentPanel, batteryHost);
 
                 // Show ours only when the built-in one is hidden
                 injected.Visibility = hostVisible ? Visibility.Collapsed : Visibility.Visible;
@@ -192,7 +193,17 @@ namespace DualSenseBattery
 
         private Panel GetParentPanel(FrameworkElement elem)
         {
-            return VisualTreeHelper.GetParent(elem) as Panel;
+            if (elem == null) return null;
+            DependencyObject current = elem;
+            while (current != null)
+            {
+                current = VisualTreeHelper.GetParent(current);
+                if (current is Panel p)
+                {
+                    return p;
+                }
+            }
+            return null;
         }
 
         private void RemoveInjected()
