@@ -155,7 +155,7 @@ namespace DualSenseBattery
 				var hostVisible = IsEffectivelyVisible(batteryHost);
 				var percentVisible = IsEffectivelyVisible(batteryPercent);
 
-                // Inject as sibling under the outer battery container so our control doesn't inherit host's Collapsed state
+                // Inject under the theme's battery container so spacing matches system battery behavior
                 var reference = batteryHost ?? batteryPercent;
                 var parentPanel = (batteryRoot as Panel) ?? GetParentPanel(reference);
                 EnsureInjectedAsSibling(parentPanel, reference);
