@@ -155,10 +155,22 @@ namespace DualSenseBattery
 				var hostVisible = IsEffectivelyVisible(batteryHost);
 				var percentVisible = IsEffectivelyVisible(batteryPercent);
 
-                // Inject under the theme's battery container so spacing matches system battery behavior
-                var reference = batteryHost ?? batteryPercent;
-                var parentPanel = (batteryRoot as Panel) ?? GetParentPanel(reference);
-                EnsureInjectedAsSibling(parentPanel, reference);
+                // PS5 Reborn: inject inside the Battery container to preserve spacing with clock/icons
+                bool isPs5Reborn = batteryRoot is FrameworkElement br && string.Equals(br.Name, "Battery", StringComparison.OrdinalIgnoreCase);
+                if (isPs5Reborn)
+                {
+                    // Prefer inner BatteryStatus for exact margin/scale reference
+                    var refElem = FindByName(batteryRoot, "BatteryStatus") ?? batteryHost ?? batteryRoot;
+                    var parent = (batteryRoot as Panel) ?? GetParentPanel(refElem);
+                    EnsureInjectedInside(parent, refElem);
+                }
+                else
+                {
+                    // Other themes: inject as sibling next to the host
+                    var reference = batteryHost ?? batteryPercent;
+                    var parentPanel = (batteryRoot as Panel) ?? GetParentPanel(reference);
+                    EnsureInjectedAsSibling(parentPanel, reference);
+                }
 
 				// Show ours only when BOTH built-in icon and percentage are hidden (user disabled both toggles)
 				injected.Visibility = (!hostVisible && !percentVisible) ? Visibility.Visible : Visibility.Collapsed;
@@ -188,6 +200,31 @@ namespace DualSenseBattery
             };
 
             // Position by copying layout and attached properties from reference for 1:1 overlay
+            if (reference != null)
+            {
+                CopyAttachedLayout(control, reference);
+                CopyLayoutProperties(control, reference);
+                try { Panel.SetZIndex(control, Panel.GetZIndex(reference) + 1); } catch { }
+            }
+
+            parent.Children.Add(control);
+            injected = control;
+        }
+
+        private void EnsureInjectedInside(Panel parent, FrameworkElement reference)
+        {
+            if (injected != null) return;
+            if (parent == null) return;
+
+            var control = new Views.AutoSystemBatteryReplacementControl
+            {
+                IsHitTestVisible = false,
+                Focusable = false,
+                HorizontalAlignment = HorizontalAlignment.Left,
+                VerticalAlignment = VerticalAlignment.Top,
+                Margin = new Thickness(0)
+            };
+
             if (reference != null)
             {
                 CopyAttachedLayout(control, reference);
