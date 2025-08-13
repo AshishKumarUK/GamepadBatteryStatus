@@ -346,10 +346,7 @@ namespace DualSenseBattery.Views
             }
 
             // Show once we have a legit reading
-            if (ContentRoot.Visibility != Visibility.Visible)
-            {
-                ContentRoot.Visibility = Visibility.Visible;
-            }
+            ContentRoot.Visibility = Visibility.Visible;
 
             // No change → no repaint
             if (r.Level == lastLevel && r.Charging == lastCharging && r.Full == lastFull)
@@ -405,17 +402,33 @@ namespace DualSenseBattery.Views
                 Icon.FontFamily = res.FontFamily;
                 Icon.FontSize = res.FontSize;
                 Icon.Foreground = res.Foreground;
+                Icon.Margin = res.Margin;
             }
-            else
+
+            // PS5 Reborn fallback using Segoe Fluent Icons glyphs
+            if (res == null)
             {
-                // Fallback to IcoFont
-                Icon.Text = charging ? "\ueed4" : (level == BatteryChargeLevel.High ? "\ueeb2"
-                                    : level == BatteryChargeLevel.Medium ? "\ueeb3"
-                                    : level == BatteryChargeLevel.Low ? "\ueeb4" : "\ueeb1");
-                Icon.FontFamily = (FontFamily)FindResource("FontIcoFont");
-                Icon.FontSize = 42;
-                Icon.Foreground = (Brush)FindResource("TextBrush");
+                Icon.Text = charging ? "\ue85a" : "\ue850";
+                Icon.FontFamily = new FontFamily("Segoe Fluent Icons");
+                Icon.Foreground = Brushes.White;
+                Icon.Effect = new System.Windows.Media.Effects.DropShadowEffect { BlurRadius = 5, ShadowDepth = 0 };
             }
+
+            // Update PS5 Reborn-like bar
+            try
+            {
+                double pct = 0;
+                switch (level)
+                {
+                    case BatteryChargeLevel.High: pct = 1.0; break;
+                    case BatteryChargeLevel.Medium: pct = 0.6; break;
+                    case BatteryChargeLevel.Low: pct = 0.3; break;
+                    default: pct = 0.1; break;
+                }
+                Bar.Width = 100 * pct; // scaled down by ScaleTransform in XAML
+                Bar.Fill = level == BatteryChargeLevel.Critical ? Brushes.Red : Brushes.White;
+            }
+            catch { }
         }
 
         private class BatteryReading

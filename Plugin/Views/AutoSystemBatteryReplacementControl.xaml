@@ -8,7 +8,14 @@
              d:DesignHeight="42" d:DesignWidth="42">
     
     <Grid x:Name="ContentRoot" Visibility="Collapsed">
-        <!-- We replicate the exact theme icon by copying properties from theme resources (BatteryStatus*) at runtime -->
-        <TextBlock x:Name="Icon" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+        <!-- PS5 Reborn-style bar (scaled) -->
+        <Grid x:Name="BarHost" Margin="7,0,0,0" HorizontalAlignment="Left" RenderTransformOrigin="0,0">
+            <Grid.RenderTransform>
+                <ScaleTransform ScaleX="0.28" ScaleY="1" />
+            </Grid.RenderTransform>
+            <Rectangle x:Name="Bar" Height="14" RadiusX="5" RadiusY="5" Fill="White" Width="0" />
+        </Grid>
+        <!-- Icon glyph (default and PS5 Reborn outline) -->
+        <TextBlock x:Name="Icon" FontSize="42" HorizontalAlignment="Center" VerticalAlignment="Center" />
     </Grid>
 </playniteControls:PluginUserControl>

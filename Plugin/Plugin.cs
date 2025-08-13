@@ -138,8 +138,8 @@ namespace DualSenseBattery
                     return;
                 }
 
-                // Determine visibility based on theme's battery host (CustomBattery typically collapses)
-                var hostVisible = (batteryHost as UIElement)?.IsVisible == true && (batteryHost as UIElement).Visibility == Visibility.Visible;
+                // Determine visibility based on theme's battery host (handles opacity/scale animations too)
+                var hostVisible = IsEffectivelyVisible(batteryHost);
 
                 // Inject as sibling under the outer battery container so our control doesn't inherit host's Collapsed state
                 var parentPanel = (batteryRoot as Panel) ?? GetParentPanel(batteryHost);
@@ -204,6 +204,27 @@ namespace DualSenseBattery
                 }
             }
             return null;
+        }
+
+        private bool IsEffectivelyVisible(FrameworkElement elem)
+        {
+            if (elem == null) return false;
+            if (elem.Visibility != Visibility.Visible) return false;
+            if (!elem.IsVisible) return false;
+            if (elem.Opacity <= 0.01) return false;
+            // If transformed scale is ~0, treat as hidden
+            try
+            {
+                if (elem.RenderTransform is ScaleTransform st)
+                {
+                    if (Math.Abs(st.ScaleX) < 0.05 || Math.Abs(st.ScaleY) < 0.05)
+                        return false;
+                }
+            }
+            catch { }
+            // Ensure it has size
+            if (elem.ActualWidth < 1 || elem.ActualHeight < 1) return false;
+            return true;
         }
 
         private void RemoveInjected()
