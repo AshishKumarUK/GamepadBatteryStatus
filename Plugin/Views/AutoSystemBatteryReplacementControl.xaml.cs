@@ -11,6 +11,7 @@ namespace DualSenseBattery.Views
 {
     public partial class AutoSystemBatteryReplacementControl : PluginUserControl
     {
+        public bool ForceShow { get; set; } = false;
         private readonly string helperPath;
         private readonly System.Windows.Threading.DispatcherTimer timer;
         private static DualSensePowerStatus powerStatus;
@@ -192,7 +193,7 @@ namespace DualSenseBattery.Views
         private void Timer_Tick(object sender, EventArgs e)
         {
             // Only poll if we should show DualSense battery
-            if (isSystemBatteryEnabled)
+            if (isSystemBatteryEnabled && !ForceShow)
             {
                 return;
             }
@@ -311,8 +312,8 @@ namespace DualSenseBattery.Views
 
         private void ApplyReading(BatteryReading r)
         {
-            // Only show if system battery is disabled
-            if (isSystemBatteryEnabled)
+            // Only show if system battery is disabled (unless forced by overlay)
+            if (isSystemBatteryEnabled && !ForceShow)
             {
                 return;
             }

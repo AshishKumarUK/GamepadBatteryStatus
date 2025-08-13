@@ -135,6 +135,10 @@ namespace DualSenseBattery
                 // Show ours only when the built-in one is hidden (user disabled system battery)
                 var hostVisible = (batteryHost as UIElement)?.IsVisible == true && (batteryHost as UIElement).Visibility == Visibility.Visible;
                 injected.Visibility = hostVisible ? Visibility.Collapsed : Visibility.Visible;
+                if (injected is Views.AutoSystemBatteryReplacementControl ctrl)
+                {
+                    ctrl.ForceShow = injected.Visibility == Visibility.Visible;
+                }
             }
             catch
             {
