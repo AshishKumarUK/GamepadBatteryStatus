@@ -225,6 +225,23 @@ namespace DualSenseBattery
             {
                 CopyAttachedLayout(control, reference);
                 CopyLayoutProperties(control, reference);
+                // Avoid inheriting theme's scale transforms (e.g., PS5 Reborn BatteryStatus ScaleX=0.28)
+                try
+                {
+                    if (reference.RenderTransform is ScaleTransform st && (Math.Abs(st.ScaleX - 1) > 0.01 || Math.Abs(st.ScaleY - 1) > 0.01))
+                    {
+                        control.RenderTransform = Transform.Identity;
+                    }
+                }
+                catch { }
+                try
+                {
+                    if (reference.LayoutTransform is ScaleTransform st2 && (Math.Abs(st2.ScaleX - 1) > 0.01 || Math.Abs(st2.ScaleY - 1) > 0.01))
+                    {
+                        control.LayoutTransform = Transform.Identity;
+                    }
+                }
+                catch { }
                 try { Panel.SetZIndex(control, Panel.GetZIndex(reference) + 1); } catch { }
             }
 
