@@ -1,5 +1,6 @@
 using Playnite.SDK;
 using Playnite.SDK.Plugins;
+using Playnite.SDK.Events;
 using System;
 using System.Collections.Generic;
 using System.Windows.Controls;
