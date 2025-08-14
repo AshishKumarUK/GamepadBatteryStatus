@@ -500,6 +500,7 @@ namespace DualSenseBattery
             watcherToken = new CancellationTokenSource();
             currentTask = Task.Run(async () =>
             {
+                var dispatcher = System.Windows.Application.Current?.Dispatcher;
                 while (true)
                 {
                     if (watcherToken.IsCancellationRequested)
@@ -512,7 +513,18 @@ namespace DualSenseBattery
                         var reading = GetDualSenseReading();
                         if (reading != null)
                         {
-                            context.Post((a) => ApplyReading(reading), null);
+                            if (dispatcher != null)
+                            {
+                                try { dispatcher.Invoke(() => ApplyReading(reading)); } catch { }
+                            }
+                            else if (context != null)
+                            {
+                                try { context.Post((a) => ApplyReading(reading), null); } catch { }
+                            }
+                            else
+                            {
+                                ApplyReading(reading);
+                            }
                         }
                     }
                     catch
