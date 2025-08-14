@@ -1,6 +1,6 @@
 # PS5 DualSense Controller Battery Monitor for Playnite
 
-Shows your PS5 DualSense controller battery level in Playnite Fullscreen theme, exactly where the system battery appears, with theme-accurate visuals. Optimized for fast connect/disconnect and zero overlap with the clock.
+Shows your PS5 DualSense controller battery level in Playnite Fullscreen theme, exactly where the system battery appears, with theme-accurate visuals. Optimized for fast connect/disconnect.
 
 ## How it works
 
@@ -187,4 +187,4 @@ Zip `DualSenseBattery/` as `DualSenseBattery.pext`.
 
 ## About
 
-Displays the battery status and percentage of PS5 DualSense controller connected via bluetooth, with the ability to replace Playnite's system battery indicator for desktop PC users.
+Displays the battery status and percentage of PS5 DualSense controller connected via bluetooth or usb, with the ability to replace Playnite's system battery indicator for desktop PC users.
