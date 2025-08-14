@@ -167,6 +167,28 @@ namespace DualSenseBattery
 				{
 					try { t.DataContext = bindingProxy; } catch { }
 				}
+
+				// Toggle visibility based on controller connection so battery doesn't overlap clock when off
+				bool connected = false;
+				try { connected = dualSenseStatus?.IsBatteryAvailable == true; } catch { }
+				var desiredVis = connected ? Visibility.Visible : Visibility.Collapsed;
+				try
+				{
+					var customBattery = batteryRoot != null ? (FindByName(batteryRoot, "CustomBattery") as FrameworkElement) : null;
+					if (customBattery != null)
+					{
+						customBattery.Visibility = desiredVis;
+					}
+					else if (batteryHost is UIElement uh)
+					{
+						uh.Visibility = desiredVis;
+					}
+					if (batteryPercent is UIElement up)
+					{
+						up.Visibility = desiredVis;
+					}
+				}
+				catch { }
             }
             catch
             {
