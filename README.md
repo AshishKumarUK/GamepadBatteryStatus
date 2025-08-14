@@ -1,30 +1,32 @@
 # DualSense Battery for Playnite
 
-This repo builds a Playnite plugin that shows **DualSense controller battery** (USB/Bluetooth) as a custom theme element with **highly optimized performance**.
+Shows your PS5 DualSense controller battery level in Playnite Fullscreen, exactly where the system battery appears, with theme-accurate visuals. Optimized for fast connect/disconnect and zero overlap with the clock.
 
 ## How it works
 
-* `Helper/` is a small **.NET 6** console that reads the DualSense battery and prints JSON.
-* `Plugin/` is a Playnite **GenericPlugin** (**.NET Framework 4.6.2**) exposing custom UI elements.
-* The plugin spawns the helper, parses JSON, and updates the UI with **highly optimized adaptive polling**.
+- `Helper/` is a small **.NET 8** console that reads DualSense battery and prints JSON.
+  - Prioritizes DS4Windows DSU/UDP (Cemuhook) for DualSense-as-DS4 scenarios
+  - Falls back to native DualSense HID when available
+- `Plugin/` is a Playnite **GenericPlugin** (**.NET Framework 4.6.2**).
+  - Starts the helper, parses JSON, and exposes a `PowerStatus` object (Percent/Charge/Charging/Available)
+  - In Fullscreen, it binds the theme’s battery elements to our `PowerStatus` so the theme renders the icon/percentage with its own styles
+  - Respects theme toggles (Show battery status / Show battery percentage) and hides when the controller is off
 
 ## Features
 
-### 1. Original Custom Battery Bar
-The original `DualSenseBattery/Bar` element provides a custom battery indicator that can be placed anywhere in your theme.
+- Theme-accurate battery icon: Uses the theme’s own glyphs/styles (e.g., PS5 Reborn `Media.xaml` resources)
+- Exact placement: Renders in the theme’s system battery slot (no overlaps with the clock)
+- Fast connect/disconnect: ~1s to appear/disappear when the controller turns on/off
+- Percentage source: When “Show battery percentage” is ON, the percentage is bound to DualSense battery (not system/laptop)
+- Toggle support: “Show battery status” and “Show battery percentage” control visibility; we ignore system/laptop battery entirely
+- DS4Windows compatible: Reads DualSense via DSU/UDP even when it appears as a PS4 controller
 
-### 2. Automatic System Battery Replacement (NEW!)
-The new `DualSenseSystemBattery/AutoSystemBatteryReplacement` element **automatically replaces Playnite's system battery indicator** with DualSense controller battery status when system battery is disabled. **No manual theme editing required!**
+## Performance
 
-### 3. Manual System Battery Replacement (Alternative)
-The `DualSenseSystemBattery/SystemBatteryReplacement` element can be manually added to themes to replace the system battery indicator (requires theme editing).
-
-### 4. Highly Optimized Performance (NEW!)
-- **Fast initial detection**: 5-10 second controller connection detection
-- **Adaptive polling intervals**: 3-5 minutes based on battery state (after initial detection)
-- **90%+ CPU reduction** compared to traditional polling
-- **Battery life friendly** - especially for laptop users
-- **Background operation** - minimal impact on gaming performance
+- Initial detection: 1s polling for 60s after startup
+- Connected: 5s polling (3s if charging)
+- Disconnected: 1s polling for quick re-connect detection (with a 1.5s rapid probe window)
+- UI scan to attach/bind theme elements runs every 1s
 
 ## Quick Start (GitHub Build)
 
@@ -34,8 +36,29 @@ The `DualSenseSystemBattery/SystemBatteryReplacement` element can be manually ad
 3. Download the `DualSenseBattery` artifact (`.pext` file)
 4. In Playnite: **Add-ons → Install from file →** select the downloaded `.pext`
 
-### 2. Add to Your Theme (Optional)
-For automatic system battery replacement, add this to your theme:
+### 2. DS4Windows Setup (Recommended)
+If you use DS4Windows to make your DualSense appear as a PS4 controller:
+
+1. **Install DS4Windows** (if not already installed):
+   - Download from [DS4Windows GitHub](https://github.com/Ryochan7/DS4Windows)
+   - Install and run DS4Windows
+
+2. **Enable UDP Server** in DS4Windows:
+   - Open DS4Windows
+   - Go to **Settings** → **UDP Server**
+   - Check **"Enable UDP server"**
+   - Set **Port** to `26760` (default)
+   - Click **Save**
+
+3. **Connect your DualSense**:
+   - Connect your DualSense controller (USB or Bluetooth)
+   - DS4Windows should detect it as a PS4 controller
+   - The plugin will automatically use DS4Windows' UDP server to read battery status
+
+**Note**: The plugin automatically detects DS4Windows and uses its UDP protocol. If DS4Windows is not running, it falls back to direct DualSense HID communication.
+
+### 3. Add to Your Theme (Optional)
+If you prefer explicit placement, add our automatic element (not required for most themes):
 
 ```xml
 <ContentControl
@@ -47,19 +70,10 @@ For automatic system battery replacement, add this to your theme:
 
 ## Use in your theme
 
-### For Custom Battery Bar (Original)
-Place this where you want the indicator in your theme XAML:
+### Automatic system battery replacement (Recommended)
+In most themes, nothing is needed. The plugin finds the battery slot and binds `PowerStatus` so the theme draws the icon/percent itself.
 
-```xml
-<ContentControl
-    playnite:PluginHostElement.SourceName="DualSenseBattery"
-    playnite:PluginHostElement.ElementName="Bar"
-    HorizontalAlignment="Right"
-    VerticalAlignment="Center"/>
-```
-
-### For Automatic System Battery Replacement (RECOMMENDED!)
-**No theme editing required!** Simply add this element to your theme and it will automatically show DualSense battery when system battery is disabled:
+If your theme needs an explicit host, add:
 
 ```xml
 <ContentControl
@@ -70,13 +84,13 @@ Place this where you want the indicator in your theme XAML:
 ```
 
 **How it works:**
-1. **Desktop PCs**: Automatically shows DualSense battery (since desktop PCs have no system battery)
-2. **Laptops**: Shows DualSense battery when Playnite's system battery setting is disabled
-3. **Smart detection**: Automatically detects when system battery should be hidden
-4. **Seamless integration**: Looks exactly like Playnite's original battery indicator
+1. Desktop PCs: System battery is ignored; DualSense drives the icon/percent
+2. Laptops: If the theme shows system battery, our data still powers the icon (no laptop battery influence)
+3. Toggle aware: Theme’s “Show battery status/percentage” buttons control visibility
+4. Seamless visuals: Uses the theme’s glyphs/fonts/margins (e.g., PS5 Reborn)
 
 ### Example: Fullscreen Theme Integration
-In your fullscreen theme's main view, add the automatic system battery replacement:
+In a fullscreen theme’s main view (only if needed), add the automatic host and a percent text:
 
 ```xml
 <!-- Automatic DualSense system battery replacement -->
@@ -97,15 +111,10 @@ In your fullscreen theme's main view, add the automatic system battery replaceme
            Grid.Column="3"/>
 ```
 
-**Note:** The automatic replacement will only show when system battery is disabled, so you don't need to hide the original battery element.
+Note: In most themes (including PS5 Reborn), you don’t need to hide the original battery. We bind its DataContext to our `PowerStatus` and hide it when the controller disconnects.
 
-### For Manual System Battery Replacement (Alternative)
-If you prefer to manually control when DualSense battery is shown, you can use the manual replacement:
-
-1. **Hide the original system battery** by setting its visibility to `Collapsed` or removing it from your theme.
-
-2. **Add the DualSense system battery replacement** in the same location:
-
+### Manual system battery replacement (Alternative)
+If a theme doesn’t expose the standard battery controls, you can place our element manually and hide the theme’s:
 ```xml
 <ContentControl
     playnite:PluginHostElement.SourceName="DualSenseSystemBattery"
@@ -114,17 +123,14 @@ If you prefer to manually control when DualSense battery is shown, you can use t
     VerticalAlignment="Center"/>
 ```
 
-## Benefits of Automatic System Battery Replacement
+## Benefits
 
-- **No Manual Theme Editing**: Automatically detects when system battery should be hidden
-- **Desktop PC Friendly**: Since desktop PCs don't have batteries, this automatically shows DualSense battery
-- **Smart Detection**: Automatically shows DualSense battery when Playnite's system battery setting is disabled
-- **Seamless Integration**: Looks and behaves exactly like Playnite's original battery indicator
-- **Fast Connection Detection**: 5-10 second controller detection for immediate user feedback
-- **Automatic Detection**: Only shows when a DualSense controller is connected
-- **Same Styling**: Uses Playnite's theme resources and styling automatically
-- **Highly Optimized**: 3-5 minute adaptive polling provides excellent performance with minimal CPU usage
-- **Battery Life Friendly**: Especially beneficial for laptop users who want to monitor controller battery without impacting system battery life
+- Looks identical to the theme’s system battery (icon, size, margins)
+- Appears/disappears within ~1s when the controller turns on/off
+- Percentage is from DualSense (not system battery)
+- Respects the theme’s Show battery status/percentage toggles
+- DS4Windows / DualShock 4 compatibility via DSU/UDP
+- Low CPU: modest polling when connected, faster only when needed
 
 ## GitHub Upload Instructions
 
@@ -164,9 +170,9 @@ If you prefer to manually control when DualSense battery is shown, you can use t
 
 ## Local build (optional)
 
-* Requires .NET SDK 6+ and **.NET Framework 4.6.2 Developer Pack**.
-* Build helper: `dotnet build Helper -c Release`
-* Build plugin: `dotnet build Plugin -c Release`
+- Requires .NET 8 SDK and **.NET Framework 4.6.2 Developer Pack**
+- Build helper: `dotnet build Helper -c Release`
+- Build plugin: `dotnet build Plugin -c Release`
 * Pack structure:
 
 ```
