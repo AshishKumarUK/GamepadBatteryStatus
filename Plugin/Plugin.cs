@@ -13,6 +13,7 @@ using System.IO;
 using System.Windows;
 using System.Windows.Threading;
 using System.Windows.Media;
+using System.Windows.Data;
 
 namespace DualSenseBattery
 {
@@ -167,6 +168,22 @@ namespace DualSenseBattery
 				{
 					try { t.DataContext = bindingProxy; } catch { }
 				}
+
+				// Force percentage text to bind to our PowerStatus.PercentCharge so it doesn't use system battery
+				try
+				{
+					if (batteryPercent is TextBlock percentText)
+					{
+						var b = new Binding("PowerStatus.PercentCharge")
+						{
+							Source = bindingProxy,
+							Mode = BindingMode.OneWay,
+							StringFormat = "{0}%"
+						};
+						percentText.SetBinding(TextBlock.TextProperty, b);
+					}
+				}
+				catch { }
 
 				// Respect theme toggles: only hide when controller is disconnected; do not force-show (theme toggle controls it)
 				bool connected = false;
