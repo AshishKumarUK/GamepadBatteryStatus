@@ -436,8 +436,10 @@ namespace DualSenseBattery
         private const int NORMAL_POLL_INTERVAL = 300000; // 5 minutes (300 seconds) - discharging
         private const int FAST_POLL_INTERVAL = 180000;   // 3 minutes (180 seconds) - charging  
         private const int SLOW_POLL_INTERVAL = 600000;   // 10 minutes (600 seconds) - disconnected
-        private const int INITIAL_DETECTION_INTERVAL = 5000; // 5 seconds - for initial connection detection
-        private const int INITIAL_DETECTION_DURATION = 30000; // 30 seconds - how long to use fast detection
+        private const int INITIAL_DETECTION_INTERVAL = 3000; // 3 second - faster initial connection detection
+        private const int INITIAL_DETECTION_DURATION = 60000; // 60 seconds - how long to use fast detection
+        private const int RAPID_RETRY_INTERVAL = 3000; // 3 seconds - brief rapid probe after disconnect
+        private const int RAPID_RETRY_DURATION = 5000; // 5 seconds - rapid probe window
         private int currentPollInterval = INITIAL_DETECTION_INTERVAL;
         
         // Fast initial connection detection
@@ -685,11 +687,24 @@ namespace DualSenseBattery
                     return;
                 }
                 
-                // Slower polling when disconnected to save resources
-                if (currentPollInterval != SLOW_POLL_INTERVAL)
+                // Brief rapid probe window after disconnect for quicker re-connect detection
+                if (currentPollInterval != RAPID_RETRY_INTERVAL && currentPollInterval != SLOW_POLL_INTERVAL)
                 {
-                    currentPollInterval = SLOW_POLL_INTERVAL;
+                    currentPollInterval = RAPID_RETRY_INTERVAL;
                     StartWatcher();
+                    return;
+                }
+
+                // After rapid probe duration, fall back to slow polling
+                if (currentPollInterval == RAPID_RETRY_INTERVAL)
+                {
+                    // Use lastConnectionTime as baseline for rapid retry timing
+                    var since = DateTime.Now - lastConnectionTime;
+                    if (since.TotalMilliseconds >= RAPID_RETRY_DURATION)
+                    {
+                        currentPollInterval = SLOW_POLL_INTERVAL;
+                        StartWatcher();
+                    }
                 }
             }
         }
