@@ -10,4 +10,10 @@
   <ItemGroup>
     <PackageReference Include="PlayniteSDK" Version="6.11.0" />
   </ItemGroup>
+  
+  <!-- Include plugin files in build output -->
+  <ItemGroup>
+    <Content Include="icon.png" />
+    <Content Include="extension.yaml" />
+  </ItemGroup>
 </Project>
