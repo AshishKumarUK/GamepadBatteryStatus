@@ -36,8 +36,9 @@ static class Program
             Console.WriteLine(JsonSerializer.Serialize(new { connected = false }));
 		}
 
-        catch
+        catch (Exception ex)
         {
+            DebugLog($"Main: unexpected error {ex.Message}");
             Console.WriteLine(JsonSerializer.Serialize(new { connected = false }));
         }
     }
@@ -97,8 +98,9 @@ static class Program
             // IMPORTANT: return false when still meaningless (lets UDP fallback run)
             return false;
         }
-        catch
+        catch (Exception ex)
         {
+            DebugLog($"DualSense HID: error {ex.Message}");
             return false;
         }
     }
@@ -190,9 +192,9 @@ static class Program
 
             DebugLog("DSU: no valid INFO response within timeout");
         }
-        catch
+        catch (Exception ex)
         {
-            // ignore
+            DebugLog($"DSU: error {ex.Message}");
         }
 
         return false;

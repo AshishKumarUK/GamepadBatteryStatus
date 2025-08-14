@@ -85,6 +85,7 @@ namespace DualSenseBattery
 		private FrameworkElement injected;
 		private PowerStatusBindingProxy bindingProxy;
 		private DualSensePowerStatus dualSenseStatus;
+        private readonly object _elementLock = new object(); // Thread safety for UI elements
 
         public void Start()
         {
@@ -98,6 +99,19 @@ namespace DualSenseBattery
 			// Initialize DualSense power status and binding proxy for default-theme rendering
 			dualSenseStatus = new DualSensePowerStatus();
 			bindingProxy = new PowerStatusBindingProxy(dualSenseStatus);
+        }
+
+        private void LogError(string operation, Exception ex)
+        {
+            try
+            {
+                // Use Playnite's logging if available, otherwise fallback to debug output
+                System.Diagnostics.Debug.WriteLine($"[DualSenseBattery] Error in {operation}: {ex.Message}");
+            }
+            catch
+            {
+                // Last resort - silent fallback to prevent logging errors from causing issues
+            }
         }
 
 		private void Timer_Tick(object sender, EventArgs e)
@@ -120,37 +134,41 @@ namespace DualSenseBattery
                 }
 
 				// Find built-in battery slot by common names (default + popular themes)
-                if (batteryHost == null)
+                lock (_elementLock)
                 {
-                    // Prefer PS5 Reborn specific names first so visibility reflects its own toggle
-                    batteryHost = FindByName(main, "CustomBattery")
-                                  ?? FindByName(main, "BatteryStatus")
-                                  ?? FindByName(main, "PART_ElemBatteryStatus")
-                                  ?? FindByName(main, "ElemBatteryStatus")
-                                  ?? FindByName(main, "PART_BatteryStatus")
-                                  ?? FindByName(main, "PART_PS_Battery")
-                                  ?? FindByName(main, "PSBattery")
-                                  ?? FindByName(main, "PS5_Battery")
-                                  ?? FindByName(main, "PS5Battery")
-                                  ?? FindByName(main, "Battery");
+                    if (batteryHost == null)
+                    {
+                        // Prefer PS5 Reborn specific names first so visibility reflects its own toggle
+                        batteryHost = FindByName(main, "CustomBattery")
+                                      ?? FindByName(main, "BatteryStatus")
+                                      ?? FindByName(main, "PART_ElemBatteryStatus")
+                                      ?? FindByName(main, "ElemBatteryStatus")
+                                      ?? FindByName(main, "PART_BatteryStatus")
+                                      ?? FindByName(main, "PART_PS_Battery")
+                                      ?? FindByName(main, "PSBattery")
+                                      ?? FindByName(main, "PS5_Battery")
+                                      ?? FindByName(main, "PS5Battery")
+                                      ?? FindByName(main, "Battery");
 
-                    // Also capture outer root when present (PS5 Reborn uses an outer 'Battery' grid)
-                    batteryRoot = FindByName(main, "Battery");
+                        // Also capture outer root when present (PS5 Reborn uses an outer 'Battery' grid)
+                        batteryRoot = FindByName(main, "Battery");
+                    }
+
+				    // Find percentage element by common names from default theme
+				    if (batteryPercent == null)
+				    {
+					    batteryPercent = FindByName(main, "PART_TextBatteryPercentage")
+									 ?? FindByName(main, "TextBatteryPercentage")
+									 ?? FindByName(main, "BatteryPercentage");
+				    }
+
+                    // Also cache the outer container (PS5 Reborn uses Grid x:Name="Battery")
+                    if (batteryRoot == null)
+                    {
+                        batteryRoot = FindByName(main, "Battery") ?? FindByName(main, "BatteryContainer");
+                    }
                 }
 
-				// Find percentage element by common names from default theme
-				if (batteryPercent == null)
-				{
-					batteryPercent = FindByName(main, "PART_TextBatteryPercentage")
-								 ?? FindByName(main, "TextBatteryPercentage")
-								 ?? FindByName(main, "BatteryPercentage");
-				}
-
-                // Also cache the outer container (PS5 Reborn uses Grid x:Name="Battery")
-                if (batteryRoot == null)
-                {
-                    batteryRoot = FindByName(main, "Battery") ?? FindByName(main, "BatteryContainer");
-                }
                 // If neither host nor percentage element is present, skip this tick
                 if (batteryHost == null && batteryPercent == null)
                 {
@@ -161,12 +179,17 @@ namespace DualSenseBattery
 				// New approach: Feed our PowerStatus to the theme battery controls and avoid overlays
 				RemoveInjected();
 				var targets = new List<FrameworkElement>();
-				if (batteryHost != null) targets.Add(batteryHost);
-				if (batteryRoot != null) targets.Add(batteryRoot);
-				if (batteryPercent != null) targets.Add(batteryPercent);
+				lock (_elementLock)
+				{
+				    if (batteryHost != null) targets.Add(batteryHost);
+				    if (batteryRoot != null) targets.Add(batteryRoot);
+				    if (batteryPercent != null) targets.Add(batteryPercent);
+				}
+				
 				foreach (var t in targets)
 				{
-					try { t.DataContext = bindingProxy; } catch { }
+					try { t.DataContext = bindingProxy; } 
+					catch (Exception ex) { LogError("SetDataContext", ex); }
 				}
 
 				// Force percentage text to bind to our PowerStatus.PercentCharge so it doesn't use system battery
@@ -183,16 +206,23 @@ namespace DualSenseBattery
 						percentText.SetBinding(TextBlock.TextProperty, b);
 					}
 				}
-				catch { }
+				catch (Exception ex) { LogError("SetPercentageBinding", ex); }
 
 				// Respect theme toggles: only hide when controller is disconnected; do not force-show (theme toggle controls it)
 				bool connected = false;
-				try { connected = dualSenseStatus?.IsBatteryAvailable == true; } catch { }
+				try { connected = dualSenseStatus?.IsBatteryAvailable == true; } 
+				catch (Exception ex) { LogError("CheckBatteryAvailable", ex); }
+				
 				if (!connected)
 				{
 					try
 					{
-						var customBattery = batteryRoot != null ? (FindByName(batteryRoot, "CustomBattery") as FrameworkElement) : null;
+						FrameworkElement customBattery = null;
+						lock (_elementLock)
+						{
+						    customBattery = batteryRoot != null ? (FindByName(batteryRoot, "CustomBattery") as FrameworkElement) : null;
+						}
+						
 						if (customBattery != null)
 						{
 							// Use SetCurrentValue so theme triggers (ShowBattery) can take effect when reconnected
@@ -207,12 +237,12 @@ namespace DualSenseBattery
 							up.SetCurrentValue(UIElement.VisibilityProperty, Visibility.Collapsed);
 						}
 					}
-					catch { }
+					catch (Exception ex) { LogError("HideBatteryElements", ex); }
 				}
             }
-            catch
+            catch (Exception ex)
             {
-                // ignore
+                LogError("Timer_Tick", ex);
             }
         }
 
@@ -305,6 +335,43 @@ namespace DualSenseBattery
             var parent = VisualTreeHelper.GetParent(injected) as Panel;
             try { parent?.Children.Remove(injected); } catch { }
             injected = null;
+        }
+
+        /// <summary>
+        /// Clears cached UI element references to prevent memory leaks
+        /// </summary>
+        private void ClearCachedElements()
+        {
+            lock (_elementLock)
+            {
+                batteryHost = null;
+                batteryRoot = null;
+                batteryPercent = null;
+            }
+        }
+
+        /// <summary>
+        /// Disposes resources and cleans up memory
+        /// </summary>
+        public void Dispose()
+        {
+            try
+            {
+                timer?.Stop();
+                timer = null;
+                
+                RemoveInjected();
+                ClearCachedElements();
+                
+                dualSenseStatus?.Dispose();
+                dualSenseStatus = null;
+                
+                bindingProxy = null;
+            }
+            catch (Exception ex)
+            {
+                LogError("Dispose", ex);
+            }
         }
 
         private void CopyAttachedLayout(FrameworkElement dest, FrameworkElement src)
@@ -449,6 +516,8 @@ namespace DualSenseBattery
         private readonly SynchronizationContext context;
         private CancellationTokenSource watcherToken;
         private Task currentTask;
+        private readonly object _pollingLock = new object(); // Thread safety for polling state
+        private readonly object _dataLock = new object(); // Thread safety for battery data
 
         // Performance optimization: highly optimized adaptive polling intervals
         // DualSense battery changes slowly (2-4 hours to discharge, 1-2 hours to charge)
@@ -473,53 +542,77 @@ namespace DualSenseBattery
 
         public int PercentCharge
         {
-            get => _percentCharge;
+            get 
+            { 
+                lock (_dataLock) return _percentCharge; 
+            }
             private set
             {
-                if (_percentCharge != value)
+                lock (_dataLock)
                 {
-                    _percentCharge = value;
-                    OnPropertyChanged();
-                    UpdateChargeLevel();
+                    if (_percentCharge != value)
+                    {
+                        _percentCharge = value;
+                        OnPropertyChanged();
+                        UpdateChargeLevel();
+                    }
                 }
             }
         }
 
         public BatteryChargeLevel Charge
         {
-            get => _charge;
+            get 
+            { 
+                lock (_dataLock) return _charge; 
+            }
             private set
             {
-                if (_charge != value)
+                lock (_dataLock)
                 {
-                    _charge = value;
-                    OnPropertyChanged();
+                    if (_charge != value)
+                    {
+                        _charge = value;
+                        OnPropertyChanged();
+                    }
                 }
             }
         }
 
         public bool IsCharging
         {
-            get => _isCharging;
+            get 
+            { 
+                lock (_dataLock) return _isCharging; 
+            }
             private set
             {
-                if (_isCharging != value)
+                lock (_dataLock)
                 {
-                    _isCharging = value;
-                    OnPropertyChanged();
+                    if (_isCharging != value)
+                    {
+                        _isCharging = value;
+                        OnPropertyChanged();
+                    }
                 }
             }
         }
 
         public bool IsBatteryAvailable
         {
-            get => _isBatteryAvailable;
+            get 
+            { 
+                lock (_dataLock) return _isBatteryAvailable; 
+            }
             private set
             {
-                if (_isBatteryAvailable != value)
+                lock (_dataLock)
                 {
-                    _isBatteryAvailable = value;
-                    OnPropertyChanged();
+                    if (_isBatteryAvailable != value)
+                    {
+                        _isBatteryAvailable = value;
+                        OnPropertyChanged();
+                    }
                 }
             }
         }
@@ -535,51 +628,70 @@ namespace DualSenseBattery
 
         public async void StartWatcher()
         {
-            watcherToken?.Cancel();
+            lock (_pollingLock)
+            {
+                watcherToken?.Cancel();
+            }
+            
             if (currentTask != null)
             {
                 await currentTask;
             }
 
-            watcherToken = new CancellationTokenSource();
-            currentTask = Task.Run(async () =>
+            lock (_pollingLock)
             {
-                var dispatcher = System.Windows.Application.Current?.Dispatcher;
-                while (true)
+                watcherToken = new CancellationTokenSource();
+                currentTask = Task.Run(async () =>
                 {
-                    if (watcherToken.IsCancellationRequested)
+                    var dispatcher = System.Windows.Application.Current?.Dispatcher;
+                    while (true)
                     {
-                        return;
-                    }
-
-                    try
-                    {
-                        var reading = GetDualSenseReading();
-                        if (reading != null)
+                        CancellationToken token;
+                        lock (_pollingLock)
                         {
-                            if (dispatcher != null)
+                            if (watcherToken.IsCancellationRequested)
                             {
-                                try { dispatcher.Invoke(() => ApplyReading(reading)); } catch { }
+                                return;
                             }
-                            else if (context != null)
+                            token = watcherToken.Token;
+                        }
+
+                        try
+                        {
+                            var reading = GetDualSenseReading();
+                            if (reading != null)
                             {
-                                try { context.Post((a) => ApplyReading(reading), null); } catch { }
-                            }
-                            else
-                            {
-                                ApplyReading(reading);
+                                if (dispatcher != null)
+                                {
+                                    try { dispatcher.Invoke(() => ApplyReading(reading)); } 
+                                    catch (Exception ex) { LogError("DispatcherInvoke", ex); }
+                                }
+                                else if (context != null)
+                                {
+                                    try { context.Post((a) => ApplyReading(reading), null); } 
+                                    catch (Exception ex) { LogError("ContextPost", ex); }
+                                }
+                                else
+                                {
+                                    ApplyReading(reading);
+                                }
                             }
                         }
-                    }
-                    catch
-                    {
-                        // Ignore errors, don't crash the watcher
-                    }
+                        catch (Exception ex)
+                        {
+                            LogError("WatcherLoop", ex);
+                        }
 
-                    // Use adaptive polling interval based on battery state
-                    await Task.Delay(currentPollInterval);
-                }
-            }, watcherToken.Token);
+                        // Use adaptive polling interval based on battery state
+                        int interval;
+                        lock (_pollingLock)
+                        {
+                            interval = currentPollInterval;
+                        }
+                        await Task.Delay(interval, token);
+                    }
+                }, watcherToken.Token);
+            }
         }
 
         private BatteryReading GetDualSenseReading()
@@ -612,8 +724,9 @@ namespace DualSenseBattery
                     return ParseReading(output);
                 }
             }
-            catch
+            catch (Exception ex)
             {
+                LogError("GetDualSenseReading", ex);
                 return null;
             }
         }
@@ -635,8 +748,9 @@ namespace DualSenseBattery
 
                 return r;
             }
-            catch
+            catch (Exception ex)
             {
+                LogError("ParseReading", ex);
                 return null;
             }
         }
@@ -768,7 +882,10 @@ namespace DualSenseBattery
 
         public async void StopWatcher()
         {
-            watcherToken?.Cancel();
+            lock (_pollingLock)
+            {
+                watcherToken?.Cancel();
+            }
             if (currentTask != null)
             {
                 await currentTask;
@@ -784,6 +901,18 @@ namespace DualSenseBattery
         protected virtual void OnPropertyChanged([CallerMemberName] string propertyName = null)
         {
             PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(propertyName));
+        }
+
+        private void LogError(string operation, Exception ex)
+        {
+            try
+            {
+                System.Diagnostics.Debug.WriteLine($"[DualSensePowerStatus] Error in {operation}: {ex.Message}");
+            }
+            catch
+            {
+                // Last resort - silent fallback
+            }
         }
 
         private class BatteryReading
