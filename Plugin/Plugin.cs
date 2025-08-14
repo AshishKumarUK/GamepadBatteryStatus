@@ -168,27 +168,30 @@ namespace DualSenseBattery
 					try { t.DataContext = bindingProxy; } catch { }
 				}
 
-				// Toggle visibility based on controller connection so battery doesn't overlap clock when off
+				// Respect theme toggles: only hide when controller is disconnected; do not force-show (theme toggle controls it)
 				bool connected = false;
 				try { connected = dualSenseStatus?.IsBatteryAvailable == true; } catch { }
-				var desiredVis = connected ? Visibility.Visible : Visibility.Collapsed;
-				try
+				if (!connected)
 				{
-					var customBattery = batteryRoot != null ? (FindByName(batteryRoot, "CustomBattery") as FrameworkElement) : null;
-					if (customBattery != null)
+					try
 					{
-						customBattery.Visibility = desiredVis;
+						var customBattery = batteryRoot != null ? (FindByName(batteryRoot, "CustomBattery") as FrameworkElement) : null;
+						if (customBattery != null)
+						{
+							// Use SetCurrentValue so theme triggers (ShowBattery) can take effect when reconnected
+							customBattery.SetCurrentValue(UIElement.VisibilityProperty, Visibility.Collapsed);
+						}
+						else if (batteryHost is UIElement uh)
+						{
+							uh.SetCurrentValue(UIElement.VisibilityProperty, Visibility.Collapsed);
+						}
+						if (batteryPercent is UIElement up)
+						{
+							up.SetCurrentValue(UIElement.VisibilityProperty, Visibility.Collapsed);
+						}
 					}
-					else if (batteryHost is UIElement uh)
-					{
-						uh.Visibility = desiredVis;
-					}
-					if (batteryPercent is UIElement up)
-					{
-						up.Visibility = desiredVis;
-					}
+					catch { }
 				}
-				catch { }
             }
             catch
             {
