@@ -433,12 +433,12 @@ namespace DualSenseBattery
         // Performance optimization: highly optimized adaptive polling intervals
         // DualSense battery changes slowly (2-4 hours to discharge, 1-2 hours to charge)
         // 3-5 minute intervals provide 90%+ CPU reduction while maintaining adequate responsiveness
-        private const int NORMAL_POLL_INTERVAL = 300000; // 5 minutes (300 seconds) - discharging
-        private const int FAST_POLL_INTERVAL = 180000;   // 3 minutes (180 seconds) - charging  
-        private const int SLOW_POLL_INTERVAL = 600000;   // 10 minutes (600 seconds) - disconnected
-        private const int INITIAL_DETECTION_INTERVAL = 3000; // 3 second - faster initial connection detection
-        private const int INITIAL_DETECTION_DURATION = 60000; // 60 seconds - how long to use fast detection
-        private const int RAPID_RETRY_INTERVAL = 3000; // 3 seconds - brief rapid probe after disconnect
+        private const int NORMAL_POLL_INTERVAL = 5000;   // 5 seconds - connected (discharging)
+        private const int FAST_POLL_INTERVAL = 3000;    // 3 seconds - connected (charging)
+        private const int SLOW_POLL_INTERVAL = 1000;    // 1 second - disconnected
+        private const int INITIAL_DETECTION_INTERVAL = 1000; // 1 second - initial detection
+        private const int INITIAL_DETECTION_DURATION = 60000; // 60 seconds - initial fast window
+        private const int RAPID_RETRY_INTERVAL = 1500; // 1.5 seconds - brief rapid probe after disconnect
         private const int RAPID_RETRY_DURATION = 5000; // 5 seconds - rapid probe window
         private int currentPollInterval = INITIAL_DETECTION_INTERVAL;
         
