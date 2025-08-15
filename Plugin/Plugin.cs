@@ -28,34 +28,64 @@ namespace DualSenseBattery
 
         public PluginImpl(IPlayniteAPI api) : base(api)
         {
-            // Keep the original custom element support for backward compatibility
-            AddCustomElementSupport(new AddCustomElementSupportArgs
+            try
             {
-                SourceName = "DualSenseBattery",
-                ElementList = new List<string> { "Bar" }
-            });
+                // Immediate logging to verify plugin loading
+                System.Diagnostics.Debug.WriteLine("[DualSenseBattery] Plugin constructor called");
+                System.Console.WriteLine("[DualSenseBattery] Plugin constructor called");
+                
+                // Keep the original custom element support for backward compatibility
+                AddCustomElementSupport(new AddCustomElementSupportArgs
+                {
+                    SourceName = "DualSenseBattery",
+                    ElementList = new List<string> { "Bar" }
+                });
 
-            // Add custom element for automatic system battery replacement
-            AddCustomElementSupport(new AddCustomElementSupportArgs
+                // Add custom element for automatic system battery replacement
+                AddCustomElementSupport(new AddCustomElementSupportArgs
+                {
+                    SourceName = "DualSenseSystemBattery",
+                    ElementList = new List<string> { "SystemBatteryReplacement", "AutoSystemBatteryReplacement" }
+                });
+                
+                System.Diagnostics.Debug.WriteLine("[DualSenseBattery] Plugin constructor completed");
+                System.Console.WriteLine("[DualSenseBattery] Plugin constructor completed");
+            }
+            catch (Exception ex)
             {
-                SourceName = "DualSenseSystemBattery",
-                ElementList = new List<string> { "SystemBatteryReplacement", "AutoSystemBatteryReplacement" }
-            });
+                System.Diagnostics.Debug.WriteLine($"[DualSenseBattery] Error in constructor: {ex.Message}");
+                System.Console.WriteLine($"[DualSenseBattery] Error in constructor: {ex.Message}");
+            }
         }
 
         public override void OnApplicationStarted(OnApplicationStartedEventArgs args)
         {
             try
             {
+                System.Diagnostics.Debug.WriteLine("[DualSenseBattery] OnApplicationStarted called");
+                System.Console.WriteLine("[DualSenseBattery] OnApplicationStarted called");
+                
                 base.OnApplicationStarted(args);
+                
+                System.Diagnostics.Debug.WriteLine("[DualSenseBattery] Creating FullscreenOverlayManager");
+                System.Console.WriteLine("[DualSenseBattery] Creating FullscreenOverlayManager");
+                
                 overlayManager = new FullscreenOverlayManager();
+                
+                System.Diagnostics.Debug.WriteLine("[DualSenseBattery] Starting FullscreenOverlayManager");
+                System.Console.WriteLine("[DualSenseBattery] Starting FullscreenOverlayManager");
+                
                 overlayManager.Start();
+                
+                System.Diagnostics.Debug.WriteLine("[DualSenseBattery] OnApplicationStarted completed");
+                System.Console.WriteLine("[DualSenseBattery] OnApplicationStarted completed");
             }
             catch (Exception ex)
             {
                 try
                 {
                     System.Diagnostics.Debug.WriteLine($"[DualSenseBattery] Error in OnApplicationStarted: {ex.Message}");
+                    System.Console.WriteLine($"[DualSenseBattery] Error in OnApplicationStarted: {ex.Message}");
                 }
                 catch
                 {
@@ -248,6 +278,9 @@ namespace DualSenseBattery
         {
             try
             {
+                System.Diagnostics.Debug.WriteLine("[DualSenseBattery] FullscreenOverlayManager constructor called");
+                System.Console.WriteLine("[DualSenseBattery] FullscreenOverlayManager constructor called");
+                
                 dualSenseStatus = new DualSensePowerStatus();
                 deviceManager = new DeviceNotificationManager(dualSenseStatus);
                 bindingProxy = new PowerStatusBindingProxy(dualSenseStatus);
@@ -257,10 +290,14 @@ namespace DualSenseBattery
                     Interval = TimeSpan.FromSeconds(1)
                 };
                 timer.Tick += Timer_Tick;
+                
+                System.Diagnostics.Debug.WriteLine("[DualSenseBattery] FullscreenOverlayManager constructor completed");
+                System.Console.WriteLine("[DualSenseBattery] FullscreenOverlayManager constructor completed");
             }
             catch (Exception ex)
             {
-                Debug.WriteLine($"[DualSenseBattery] Error creating FullscreenOverlayManager: {ex.Message}");
+                System.Diagnostics.Debug.WriteLine($"[DualSenseBattery] Error creating FullscreenOverlayManager: {ex.Message}");
+                System.Console.WriteLine($"[DualSenseBattery] Error creating FullscreenOverlayManager: {ex.Message}");
             }
         }
 
@@ -646,18 +683,24 @@ namespace DualSenseBattery
         {
             try
             {
-                Debug.WriteLine($"[DualSenseBattery] DualSensePowerStatus constructor called");
+                System.Diagnostics.Debug.WriteLine($"[DualSenseBattery] DualSensePowerStatus constructor called");
+                System.Console.WriteLine($"[DualSenseBattery] DualSensePowerStatus constructor called");
+                
                 _cancellationTokenSource = new CancellationTokenSource();
                 
                 // Test helper communication immediately
+                System.Diagnostics.Debug.WriteLine($"[DualSenseBattery] Testing helper communication...");
+                System.Console.WriteLine($"[DualSenseBattery] Testing helper communication...");
                 TestHelperCommunication();
                 
                 StartWatcher();
-                Debug.WriteLine($"[DualSenseBattery] DualSensePowerStatus constructor completed");
+                System.Diagnostics.Debug.WriteLine($"[DualSenseBattery] DualSensePowerStatus constructor completed");
+                System.Console.WriteLine($"[DualSenseBattery] DualSensePowerStatus constructor completed");
             }
             catch (Exception ex)
             {
-                Debug.WriteLine($"[DualSenseBattery] Error in DualSensePowerStatus constructor: {ex.Message}");
+                System.Diagnostics.Debug.WriteLine($"[DualSenseBattery] Error in DualSensePowerStatus constructor: {ex.Message}");
+                System.Console.WriteLine($"[DualSenseBattery] Error in DualSensePowerStatus constructor: {ex.Message}");
             }
         }
 
@@ -695,20 +738,24 @@ namespace DualSenseBattery
         {
             try
             {
-                Debug.WriteLine($"[DualSenseBattery] Testing helper communication...");
+                System.Diagnostics.Debug.WriteLine($"[DualSenseBattery] Testing helper communication...");
+                System.Console.WriteLine($"[DualSenseBattery] Testing helper communication...");
                 var reading = GetDualSenseReading();
                 if (reading != null)
                 {
-                    Debug.WriteLine($"[DualSenseBattery] TEST SUCCESS: Connected={reading.Connected}, Level={reading.Level}, Charging={reading.Charging}");
+                    System.Diagnostics.Debug.WriteLine($"[DualSenseBattery] TEST SUCCESS: Connected={reading.Connected}, Level={reading.Level}, Charging={reading.Charging}");
+                    System.Console.WriteLine($"[DualSenseBattery] TEST SUCCESS: Connected={reading.Connected}, Level={reading.Level}, Charging={reading.Charging}");
                 }
                 else
                 {
-                    Debug.WriteLine($"[DualSenseBattery] TEST FAILED: No reading returned");
+                    System.Diagnostics.Debug.WriteLine($"[DualSenseBattery] TEST FAILED: No reading returned");
+                    System.Console.WriteLine($"[DualSenseBattery] TEST FAILED: No reading returned");
                 }
             }
             catch (Exception ex)
             {
-                Debug.WriteLine($"[DualSenseBattery] TEST ERROR: {ex.Message}");
+                System.Diagnostics.Debug.WriteLine($"[DualSenseBattery] TEST ERROR: {ex.Message}");
+                System.Console.WriteLine($"[DualSenseBattery] TEST ERROR: {ex.Message}");
             }
         }
 
