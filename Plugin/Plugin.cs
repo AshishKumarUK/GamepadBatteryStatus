@@ -17,7 +17,7 @@ using System.Windows.Data;
 
 namespace DualSenseBattery
 {
-    public class PluginImpl : GenericPlugin
+    public class PluginImpl : GenericPlugin, IDisposable
     {
         private FullscreenOverlayManager overlayManager;
         public override Guid Id => new Guid("fbd2c2e6-9c1b-49b6-9c0d-1c5d3c0a9a6a");
@@ -41,9 +41,23 @@ namespace DualSenseBattery
 
         public override void OnApplicationStarted(OnApplicationStartedEventArgs args)
         {
-            base.OnApplicationStarted(args);
-            overlayManager = new FullscreenOverlayManager();
-            overlayManager.Start();
+            try
+            {
+                base.OnApplicationStarted(args);
+                overlayManager = new FullscreenOverlayManager();
+                overlayManager.Start();
+            }
+            catch (Exception ex)
+            {
+                try
+                {
+                    System.Diagnostics.Debug.WriteLine($"[DualSenseBattery] Error in OnApplicationStarted: {ex.Message}");
+                }
+                catch
+                {
+                    // Last resort - silent fallback
+                }
+            }
         }
 
         public override Control GetGameViewControl(GetGameViewControlArgs args)
@@ -74,6 +88,26 @@ namespace DualSenseBattery
                 Visible = true
             };
         }
+
+        public void Dispose()
+        {
+            try
+            {
+                overlayManager?.Dispose();
+                overlayManager = null;
+            }
+            catch (Exception ex)
+            {
+                try
+                {
+                    System.Diagnostics.Debug.WriteLine($"[DualSenseBattery] Error in Dispose: {ex.Message}");
+                }
+                catch
+                {
+                    // Last resort - silent fallback
+                }
+            }
+        }
     }
 
     internal class FullscreenOverlayManager
@@ -89,16 +123,23 @@ namespace DualSenseBattery
 
         public void Start()
         {
-            timer = new DispatcherTimer
+            try
             {
-                Interval = TimeSpan.FromSeconds(1)
-            };
-            timer.Tick += Timer_Tick;
-            timer.Start();
+                timer = new DispatcherTimer
+                {
+                    Interval = TimeSpan.FromSeconds(1)
+                };
+                timer.Tick += Timer_Tick;
+                timer.Start();
 
-			// Initialize DualSense power status and binding proxy for default-theme rendering
-			dualSenseStatus = new DualSensePowerStatus();
-			bindingProxy = new PowerStatusBindingProxy(dualSenseStatus);
+                // Initialize DualSense power status and binding proxy for default-theme rendering
+                dualSenseStatus = new DualSensePowerStatus();
+                bindingProxy = new PowerStatusBindingProxy(dualSenseStatus);
+            }
+            catch (Exception ex)
+            {
+                LogError("Start", ex);
+            }
         }
 
         private void LogError(string operation, Exception ex)
@@ -619,78 +660,116 @@ namespace DualSenseBattery
 
         public DualSensePowerStatus()
         {
-            context = SynchronizationContext.Current;
-            var pluginDir = Path.GetDirectoryName(System.Reflection.Assembly.GetExecutingAssembly().Location);
-            helperPath = Path.Combine(pluginDir ?? "", "Helper", "DualSenseBatteryHelper.exe");
-            
-            StartWatcher();
+            try
+            {
+                context = SynchronizationContext.Current;
+                var pluginDir = Path.GetDirectoryName(System.Reflection.Assembly.GetExecutingAssembly().Location);
+                helperPath = Path.Combine(pluginDir ?? "", "Helper", "DualSenseBatteryHelper.exe");
+                
+                StartWatcher();
+            }
+            catch (Exception ex)
+            {
+                LogError("Constructor", ex);
+            }
         }
 
         public async void StartWatcher()
         {
-            lock (_pollingLock)
+            try
             {
-                watcherToken?.Cancel();
-            }
-            
-            if (currentTask != null)
-            {
-                await currentTask;
-            }
-
-            lock (_pollingLock)
-            {
-                watcherToken = new CancellationTokenSource();
-                currentTask = Task.Run(async () =>
+                lock (_pollingLock)
                 {
-                    var dispatcher = System.Windows.Application.Current?.Dispatcher;
-                    while (true)
+                    // Cancel existing watcher
+                    watcherToken?.Cancel();
+                }
+                
+                // Wait for existing task to complete
+                if (currentTask != null)
+                {
+                    try
                     {
-                        CancellationToken token;
-                        lock (_pollingLock)
-                        {
-                            if (watcherToken.IsCancellationRequested)
-                            {
-                                return;
-                            }
-                            token = watcherToken.Token;
-                        }
+                        await currentTask;
+                    }
+                    catch (OperationCanceledException)
+                    {
+                        // Expected when cancelling
+                    }
+                    catch (Exception ex)
+                    {
+                        LogError("WaitForExistingTask", ex);
+                    }
+                }
 
+                lock (_pollingLock)
+                {
+                    // Create new cancellation token and task
+                    watcherToken = new CancellationTokenSource();
+                    var token = watcherToken.Token;
+                    
+                    currentTask = Task.Run(async () =>
+                    {
+                        var dispatcher = System.Windows.Application.Current?.Dispatcher;
+                        
                         try
                         {
-                            var reading = GetDualSenseReading();
-                            if (reading != null)
+                            while (!token.IsCancellationRequested)
                             {
-                                if (dispatcher != null)
+                                try
                                 {
-                                    try { dispatcher.Invoke(() => ApplyReading(reading)); } 
-                                    catch (Exception ex) { LogError("DispatcherInvoke", ex); }
+                                    var reading = GetDualSenseReading();
+                                    if (reading != null)
+                                    {
+                                        if (dispatcher != null)
+                                        {
+                                            try { dispatcher.Invoke(() => ApplyReading(reading)); } 
+                                            catch (Exception ex) { LogError("DispatcherInvoke", ex); }
+                                        }
+                                        else if (context != null)
+                                        {
+                                            try { context.Post((a) => ApplyReading(reading), null); } 
+                                            catch (Exception ex) { LogError("ContextPost", ex); }
+                                        }
+                                        else
+                                        {
+                                            ApplyReading(reading);
+                                        }
+                                    }
                                 }
-                                else if (context != null)
+                                catch (Exception ex)
                                 {
-                                    try { context.Post((a) => ApplyReading(reading), null); } 
-                                    catch (Exception ex) { LogError("ContextPost", ex); }
+                                    LogError("WatcherLoop", ex);
                                 }
-                                else
+
+                                // Get current interval
+                                int interval;
+                                lock (_pollingLock)
                                 {
-                                    ApplyReading(reading);
+                                    interval = currentPollInterval;
+                                }
+                                
+                                // Wait with cancellation support
+                                try
+                                {
+                                    await Task.Delay(interval, token);
+                                }
+                                catch (OperationCanceledException)
+                                {
+                                    // Task was cancelled, exit loop
+                                    break;
                                 }
                             }
                         }
                         catch (Exception ex)
                         {
-                            LogError("WatcherLoop", ex);
+                            LogError("WatcherTask", ex);
                         }
-
-                        // Use adaptive polling interval based on battery state
-                        int interval;
-                        lock (_pollingLock)
-                        {
-                            interval = currentPollInterval;
-                        }
-                        await Task.Delay(interval, token);
-                    }
-                }, watcherToken.Token);
+                    }, token);
+                }
+            }
+            catch (Exception ex)
+            {
+                LogError("StartWatcher", ex);
             }
         }
 
@@ -787,20 +866,24 @@ namespace DualSenseBattery
                 {
                     isInInitialDetectionMode = false;
                     int newInterval = r.Charging ? FAST_POLL_INTERVAL : NORMAL_POLL_INTERVAL;
-                    if (newInterval != currentPollInterval)
+                    lock (_pollingLock)
                     {
-                        currentPollInterval = newInterval;
-                        StartWatcher(); // Restart with optimized interval
+                        if (newInterval != currentPollInterval)
+                        {
+                            currentPollInterval = newInterval;
+                        }
                     }
                     return;
                 }
                 
                 // Normal adaptive polling: faster when charging, normal when discharging
                 int adaptiveInterval = r.Charging ? FAST_POLL_INTERVAL : NORMAL_POLL_INTERVAL;
-                if (adaptiveInterval != currentPollInterval)
+                lock (_pollingLock)
                 {
-                    currentPollInterval = adaptiveInterval;
-                    StartWatcher(); // Restart with new interval
+                    if (adaptiveInterval != currentPollInterval)
+                    {
+                        currentPollInterval = adaptiveInterval;
+                    }
                 }
             }
             else
@@ -815,29 +898,32 @@ namespace DualSenseBattery
                     if (timeSinceStart.TotalMilliseconds > INITIAL_DETECTION_DURATION)
                     {
                         isInInitialDetectionMode = false;
-                        currentPollInterval = SLOW_POLL_INTERVAL;
-                        StartWatcher(); // Switch to slow polling for disconnected state
+                        lock (_pollingLock)
+                        {
+                            currentPollInterval = SLOW_POLL_INTERVAL;
+                        }
                     }
                     return;
                 }
                 
                 // Brief rapid probe window after disconnect for quicker re-connect detection
-                if (currentPollInterval != RAPID_RETRY_INTERVAL && currentPollInterval != SLOW_POLL_INTERVAL)
+                lock (_pollingLock)
                 {
-                    currentPollInterval = RAPID_RETRY_INTERVAL;
-                    StartWatcher();
-                    return;
-                }
-
-                // After rapid probe duration, fall back to slow polling
-                if (currentPollInterval == RAPID_RETRY_INTERVAL)
-                {
-                    // Use lastConnectionTime as baseline for rapid retry timing
-                    var since = DateTime.Now - lastConnectionTime;
-                    if (since.TotalMilliseconds >= RAPID_RETRY_DURATION)
+                    if (currentPollInterval != RAPID_RETRY_INTERVAL && currentPollInterval != SLOW_POLL_INTERVAL)
                     {
-                        currentPollInterval = SLOW_POLL_INTERVAL;
-                        StartWatcher();
+                        currentPollInterval = RAPID_RETRY_INTERVAL;
+                        return;
+                    }
+
+                    // After rapid probe duration, fall back to slow polling
+                    if (currentPollInterval == RAPID_RETRY_INTERVAL)
+                    {
+                        // Use lastConnectionTime as baseline for rapid retry timing
+                        var since = DateTime.Now - lastConnectionTime;
+                        if (since.TotalMilliseconds >= RAPID_RETRY_DURATION)
+                        {
+                            currentPollInterval = SLOW_POLL_INTERVAL;
+                        }
                     }
                 }
             }
@@ -882,13 +968,32 @@ namespace DualSenseBattery
 
         public async void StopWatcher()
         {
-            lock (_pollingLock)
+            try
             {
-                watcherToken?.Cancel();
+                lock (_pollingLock)
+                {
+                    watcherToken?.Cancel();
+                }
+                
+                if (currentTask != null)
+                {
+                    try
+                    {
+                        await currentTask;
+                    }
+                    catch (OperationCanceledException)
+                    {
+                        // Expected when cancelling
+                    }
+                    catch (Exception ex)
+                    {
+                        LogError("StopWatcher", ex);
+                    }
+                }
             }
-            if (currentTask != null)
+            catch (Exception ex)
             {
-                await currentTask;
+                LogError("StopWatcher", ex);
             }
         }
 
