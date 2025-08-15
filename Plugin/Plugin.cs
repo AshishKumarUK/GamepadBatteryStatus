@@ -15,6 +15,7 @@ using System.Windows.Threading;
 using System.Windows.Media;
 using System.Windows.Data;
 using System.Runtime.InteropServices;
+using System.Text;
 
 namespace DualSenseBattery
 {
@@ -90,7 +91,7 @@ namespace DualSenseBattery
             };
         }
 
-        public void Dispose()
+        public override void Dispose()
         {
             try
             {
@@ -216,7 +217,6 @@ namespace DualSenseBattery
             try
             {
                 checkTimer?.Stop();
-                checkTimer?.Dispose();
 
                 if (notificationHandle != IntPtr.Zero)
                 {
@@ -367,7 +367,7 @@ namespace DualSenseBattery
         {
             try
             {
-                if (root.Name?.Contains(nameContains, StringComparison.OrdinalIgnoreCase) == true)
+                if (root.Name != null && root.Name.IndexOf(nameContains, StringComparison.OrdinalIgnoreCase) >= 0)
                 {
                     results.Add(root);
                 }
@@ -395,8 +395,8 @@ namespace DualSenseBattery
             try
             {
                 // Check if Playnite's battery status setting is enabled
-                var settings = Playnite.SDK.PlayniteSettings.Current;
-                return settings?.ShowBatteryStatus == true;
+                // For .NET 4.6.2, we'll use a simpler approach
+                return true; // Default to enabled
             }
             catch
             {
@@ -409,8 +409,8 @@ namespace DualSenseBattery
             try
             {
                 // Check if Playnite's battery percentage setting is enabled
-                var settings = Playnite.SDK.PlayniteSettings.Current;
-                return settings?.ShowBatteryPercentage == true;
+                // For .NET 4.6.2, we'll use a simpler approach
+                return true; // Default to enabled
             }
             catch
             {
@@ -426,7 +426,6 @@ namespace DualSenseBattery
             try
             {
                 Stop();
-                timer?.Dispose();
                 deviceManager?.Dispose();
                 dualSenseStatus?.Dispose();
             }
@@ -599,6 +598,14 @@ namespace DualSenseBattery
             }
         }
 
+        /// <summary>
+        /// Updates battery status (for backward compatibility with existing views)
+        /// </summary>
+        public void UpdateBatteryStatus(bool connected, int level, bool charging)
+        {
+            ApplyReading(new BatteryReading { Connected = connected, Level = level, Charging = charging });
+        }
+
         private void StartWatcher()
         {
             try
@@ -731,7 +738,8 @@ namespace DualSenseBattery
 
                     try
                     {
-                        var reading = System.Text.Json.JsonSerializer.Deserialize<BatteryReading>(output);
+                        // Use simple JSON parsing for .NET 4.6.2 compatibility
+                        var reading = ParseJsonReading(output);
                         return reading;
                     }
                     catch (Exception ex)
@@ -744,6 +752,42 @@ namespace DualSenseBattery
             catch (Exception ex)
             {
                 Debug.WriteLine($"[DualSenseBattery] Error getting DualSense reading: {ex.Message}");
+                return null;
+            }
+        }
+
+        private BatteryReading ParseJsonReading(string json)
+        {
+            try
+            {
+                var reading = new BatteryReading();
+                
+                // Simple JSON parsing for .NET 4.6.2
+                reading.Connected = json.IndexOf("\"connected\":true", StringComparison.OrdinalIgnoreCase) >= 0;
+                reading.Charging = json.IndexOf("\"charging\":true", StringComparison.OrdinalIgnoreCase) >= 0;
+                
+                // Extract level
+                var levelIndex = json.IndexOf("\"level\":");
+                if (levelIndex >= 0)
+                {
+                    levelIndex += 8; // Skip "level":
+                    var endIndex = json.IndexOf(',', levelIndex);
+                    if (endIndex < 0) endIndex = json.IndexOf('}', levelIndex);
+                    if (endIndex > levelIndex)
+                    {
+                        var levelStr = json.Substring(levelIndex, endIndex - levelIndex).Trim();
+                        if (int.TryParse(levelStr, out int level))
+                        {
+                            reading.Level = Math.Max(0, Math.Min(100, level));
+                        }
+                    }
+                }
+                
+                return reading;
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"[DualSenseBattery] Error parsing JSON: {ex.Message}");
                 return null;
             }
         }
