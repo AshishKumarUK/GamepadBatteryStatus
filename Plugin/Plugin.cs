@@ -309,12 +309,26 @@ namespace DualSenseBattery
                         // Set our data context to override system battery
                         element.DataContext = bindingProxy;
                         
+                        // For TextBlock elements, explicitly bind the text to our battery percentage
+                        if (element is TextBlock textBlock)
+                        {
+                            var binding = new Binding("BatteryPercent")
+                            {
+                                Source = bindingProxy,
+                                StringFormat = "{0}%",
+                                Mode = BindingMode.OneWay
+                            };
+                            textBlock.SetBinding(TextBlock.TextProperty, binding);
+                        }
+                        
                         // Control visibility based on controller connection and theme settings
                         bool shouldShow = dualSenseStatus.IsBatteryAvailable && 
                                         IsBatteryStatusEnabled() && 
                                         IsBatteryPercentageEnabled();
                         
                         element.Visibility = shouldShow ? Visibility.Visible : Visibility.Collapsed;
+                        
+                        Debug.WriteLine($"[DualSenseBattery] Bound element {element.Name} to DualSense data. Connected: {dualSenseStatus.IsBatteryAvailable}, Level: {dualSenseStatus.PercentCharge}%");
                     }
                     catch (Exception ex)
                     {
@@ -449,10 +463,22 @@ namespace DualSenseBattery
             this.powerStatus.PropertyChanged += (s, e) => OnPropertyChanged(e.PropertyName);
         }
 
+        // Direct battery properties
         public int BatteryPercent => powerStatus.PercentCharge;
         public bool IsCharging => powerStatus.IsCharging;
         public bool IsBatteryAvailable => powerStatus.IsBatteryAvailable;
         public BatteryChargeLevel BatteryChargeLevel => powerStatus.Charge;
+
+        // Alternative property names that themes might use
+        public int PercentCharge => powerStatus.PercentCharge;
+        public bool Charging => powerStatus.IsCharging;
+        public bool Connected => powerStatus.IsBatteryAvailable;
+        public int Level => powerStatus.PercentCharge;
+
+        // System battery compatibility properties (override system values)
+        public bool HasBattery => powerStatus.IsBatteryAvailable;
+        public bool IsPluggedIn => powerStatus.IsCharging;
+        public int BatteryLevel => powerStatus.PercentCharge;
 
         public event PropertyChangedEventHandler PropertyChanged;
         protected virtual void OnPropertyChanged([CallerMemberName] string propertyName = null)
@@ -581,13 +607,16 @@ namespace DualSenseBattery
         {
             try
             {
+                Debug.WriteLine($"[DualSenseBattery] ForceCheck called");
                 var reading = GetDualSenseReading();
                 if (reading != null)
                 {
+                    Debug.WriteLine($"[DualSenseBattery] Got reading: Connected={reading.Connected}, Level={reading.Level}, Charging={reading.Charging}");
                     ApplyReading(reading);
                 }
                 else
                 {
+                    Debug.WriteLine($"[DualSenseBattery] No reading returned, treating as disconnected");
                     // No reading means disconnected
                     ApplyReading(new BatteryReading { Connected = false, Level = 0, Charging = false });
                 }
@@ -687,11 +716,13 @@ namespace DualSenseBattery
             {
                 PercentCharge = r.Level;
                 IsCharging = r.Charging;
+                Debug.WriteLine($"[DualSenseBattery] Applied reading: Connected=true, Level={r.Level}%, Charging={r.Charging}");
             }
             else
             {
                 PercentCharge = 0;
                 IsCharging = false;
+                Debug.WriteLine($"[DualSenseBattery] Applied reading: Connected=false");
             }
         }
 
@@ -714,7 +745,8 @@ namespace DualSenseBattery
                     RedirectStandardOutput = true,
                     RedirectStandardError = true,
                     CreateNoWindow = true,
-                    WindowStyle = ProcessWindowStyle.Hidden
+                    WindowStyle = ProcessWindowStyle.Hidden,
+                    WorkingDirectory = Path.GetDirectoryName(helperPath)
                 };
 
                 using (var process = Process.Start(startInfo))
@@ -727,19 +759,32 @@ namespace DualSenseBattery
                     if (!process.WaitForExit(5000)) // 5 second timeout
                     {
                         try { process.Kill(); } catch { }
+                        Debug.WriteLine($"[DualSenseBattery] Helper timeout. Output: {output}, Error: {error}");
                         return null;
                     }
 
                     if (process.ExitCode != 0)
                     {
-                        Debug.WriteLine($"[DualSenseBattery] Helper error: {error}");
+                        Debug.WriteLine($"[DualSenseBattery] Helper error (ExitCode: {process.ExitCode}): {error}");
                         return null;
                     }
+
+                    if (string.IsNullOrWhiteSpace(output))
+                    {
+                        Debug.WriteLine($"[DualSenseBattery] Helper returned empty output. Error: {error}");
+                        return null;
+                    }
+
+                    Debug.WriteLine($"[DualSenseBattery] Helper output: {output}");
 
                     try
                     {
                         // Use simple JSON parsing for .NET 4.6.2 compatibility
                         var reading = ParseJsonReading(output);
+                        if (reading != null)
+                        {
+                            Debug.WriteLine($"[DualSenseBattery] Parsed reading: Connected={reading.Connected}, Level={reading.Level}, Charging={reading.Charging}");
+                        }
                         return reading;
                     }
                     catch (Exception ex)
