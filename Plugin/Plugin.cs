@@ -591,8 +591,10 @@ namespace DualSenseBattery
         {
             try
             {
+                Debug.WriteLine($"[DualSenseBattery] DualSensePowerStatus constructor called");
                 _cancellationTokenSource = new CancellationTokenSource();
                 StartWatcher();
+                Debug.WriteLine($"[DualSenseBattery] DualSensePowerStatus constructor completed");
             }
             catch (Exception ex)
             {
@@ -639,19 +641,24 @@ namespace DualSenseBattery
         {
             try
             {
+                Debug.WriteLine($"[DualSenseBattery] StartWatcher called");
                 if (_pollingTask != null && !_pollingTask.IsCompleted)
                 {
+                    Debug.WriteLine($"[DualSenseBattery] Polling task already running, skipping");
                     return; // Already running
                 }
 
+                Debug.WriteLine($"[DualSenseBattery] Starting new polling task");
                 _pollingTask = Task.Run(async () =>
                 {
                     try
                     {
+                        Debug.WriteLine($"[DualSenseBattery] Polling task started");
                         while (!_cancellationTokenSource.Token.IsCancellationRequested)
                         {
                             try
                             {
+                                Debug.WriteLine($"[DualSenseBattery] Polling for DualSense reading...");
                                 var reading = GetDualSenseReading();
                                 if (reading != null)
                                 {
@@ -662,17 +669,20 @@ namespace DualSenseBattery
                                         ? (reading.Charging ? FAST_POLL_INTERVAL : NORMAL_POLL_INTERVAL)
                                         : RAPID_POLL_INTERVAL;
                                     
+                                    Debug.WriteLine($"[DualSenseBattery] Waiting {pollInterval}ms before next poll");
                                     await Task.Delay(pollInterval, _cancellationTokenSource.Token);
                                 }
                                 else
                                 {
                                     // No reading means disconnected
                                     ApplyReading(new BatteryReading { Connected = false, Level = 0, Charging = false });
+                                    Debug.WriteLine($"[DualSenseBattery] No reading, waiting {RAPID_POLL_INTERVAL}ms before retry");
                                     await Task.Delay(RAPID_POLL_INTERVAL, _cancellationTokenSource.Token);
                                 }
                             }
                             catch (OperationCanceledException)
                             {
+                                Debug.WriteLine($"[DualSenseBattery] Polling task cancelled");
                                 break; // Normal cancellation
                             }
                             catch (Exception ex)
@@ -681,12 +691,14 @@ namespace DualSenseBattery
                                 await Task.Delay(RAPID_POLL_INTERVAL, _cancellationTokenSource.Token);
                             }
                         }
+                        Debug.WriteLine($"[DualSenseBattery] Polling task ended");
                     }
                     catch (Exception ex)
                     {
                         Debug.WriteLine($"[DualSenseBattery] Error in polling task: {ex.Message}");
                     }
                 }, _cancellationTokenSource.Token);
+                Debug.WriteLine($"[DualSenseBattery] StartWatcher completed");
             }
             catch (Exception ex)
             {
@@ -730,11 +742,77 @@ namespace DualSenseBattery
         {
             try
             {
-                var helperPath = Path.Combine(Path.GetDirectoryName(typeof(PluginImpl).Assembly.Location), "Helper", "DualSenseBatteryHelper.exe");
+                // Try multiple possible helper paths
+                var possiblePaths = new List<string>();
                 
-                if (!File.Exists(helperPath))
+                // Path 1: Relative to plugin DLL (current approach)
+                var pluginDir = Path.GetDirectoryName(typeof(PluginImpl).Assembly.Location);
+                if (!string.IsNullOrEmpty(pluginDir))
                 {
-                    Debug.WriteLine($"[DualSenseBattery] Helper not found at: {helperPath}");
+                    possiblePaths.Add(Path.Combine(pluginDir, "Helper", "DualSenseBatteryHelper.exe"));
+                }
+                
+                // Path 2: Look for the helper in the same directory as the plugin DLL
+                if (!string.IsNullOrEmpty(pluginDir))
+                {
+                    possiblePaths.Add(Path.Combine(pluginDir, "DualSenseBatteryHelper.exe"));
+                }
+                
+                // Path 3: Look in the Playnite extensions directory structure
+                var playniteDir = Environment.GetEnvironmentVariable("PLAYNITE_DIR");
+                if (string.IsNullOrEmpty(playniteDir))
+                {
+                    // Try to find Playnite directory from common locations
+                    var commonPaths = new[]
+                    {
+                        @"C:\Games\Playnite",
+                        @"C:\Program Files\Playnite",
+                        @"C:\Program Files (x86)\Playnite",
+                        Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Playnite")
+                    };
+                    
+                    foreach (var path in commonPaths)
+                    {
+                        if (Directory.Exists(path))
+                        {
+                            playniteDir = path;
+                            break;
+                        }
+                    }
+                }
+                
+                if (!string.IsNullOrEmpty(playniteDir))
+                {
+                    // Look for our extension directory
+                    var extensionsDir = Path.Combine(playniteDir, "Extensions");
+                    if (Directory.Exists(extensionsDir))
+                    {
+                        var extensionDirs = Directory.GetDirectories(extensionsDir, "*DualSenseBattery*");
+                        foreach (var extDir in extensionDirs)
+                        {
+                            possiblePaths.Add(Path.Combine(extDir, "Helper", "DualSenseBatteryHelper.exe"));
+                        }
+                    }
+                }
+                
+                string helperPath = null;
+                foreach (var path in possiblePaths)
+                {
+                    if (File.Exists(path))
+                    {
+                        helperPath = path;
+                        Debug.WriteLine($"[DualSenseBattery] Found helper at: {helperPath}");
+                        break;
+                    }
+                }
+                
+                if (string.IsNullOrEmpty(helperPath))
+                {
+                    Debug.WriteLine($"[DualSenseBattery] Helper not found. Searched paths:");
+                    foreach (var path in possiblePaths)
+                    {
+                        Debug.WriteLine($"[DualSenseBattery]   - {path}");
+                    }
                     return null;
                 }
 
