@@ -14,6 +14,7 @@ using System.Windows;
 using System.Windows.Threading;
 using System.Windows.Media;
 using System.Windows.Data;
+using System.Runtime.InteropServices;
 
 namespace DualSenseBattery
 {
@@ -110,500 +111,374 @@ namespace DualSenseBattery
         }
     }
 
-    internal class FullscreenOverlayManager
+    /// <summary>
+    /// Manages Windows Device Notifications for real-time controller detection
+    /// </summary>
+    public class DeviceNotificationManager : IDisposable
     {
-        private DispatcherTimer timer;
-        private FrameworkElement batteryHost; // theme battery content (e.g., CustomBattery/BatteryStatus)
-        private FrameworkElement batteryRoot; // theme battery container (e.g., Battery)
-        private FrameworkElement batteryPercent; // theme battery percentage text
-		private FrameworkElement injected;
-		private PowerStatusBindingProxy bindingProxy;
-		private DualSensePowerStatus dualSenseStatus;
-        private readonly object _elementLock = new object(); // Thread safety for UI elements
-        
-        // Re-detection mechanism
-        private int tickCount = 0;
-        private const int REDETECTION_INTERVAL = 3; // Force re-detection every 3 seconds
-        private const int INITIAL_REDETECTION_INTERVAL = 1; // Force re-detection every 1 second during initial detection
+        private const int WM_DEVICECHANGE = 0x0219;
+        private const int DBT_DEVICEARRIVAL = 0x8000;
+        private const int DBT_DEVICEREMOVECOMPLETE = 0x8004;
+        private const int DBT_DEVTYP_DEVICEINTERFACE = 0x00000005;
 
-        public void Start()
+        [StructLayout(LayoutKind.Sequential)]
+        private struct DEV_BROADCAST_DEVICEINTERFACE
+        {
+            public int dbcc_size;
+            public int dbcc_devicetype;
+            public int dbcc_reserved;
+            public Guid dbcc_classguid;
+            [MarshalAs(UnmanagedType.ByValArray, SizeConst = 255)]
+            public byte[] dbcc_name;
+        }
+
+        [DllImport("user32.dll", CharSet = CharSet.Auto)]
+        private static extern IntPtr RegisterDeviceNotification(IntPtr hRecipient, IntPtr NotificationFilter, int Flags);
+
+        [DllImport("user32.dll")]
+        private static extern bool UnregisterDeviceNotification(IntPtr Handle);
+
+        private IntPtr notificationHandle;
+        private readonly DispatcherTimer checkTimer;
+        private readonly DualSensePowerStatus powerStatus;
+        private bool isDisposed = false;
+
+        public DeviceNotificationManager(DualSensePowerStatus powerStatus)
+        {
+            this.powerStatus = powerStatus;
+            
+            // Fallback timer for periodic checks (in case device notifications fail)
+            checkTimer = new DispatcherTimer
+            {
+                Interval = TimeSpan.FromSeconds(2)
+            };
+            checkTimer.Tick += CheckTimer_Tick;
+            
+            // Start the timer immediately
+            checkTimer.Start();
+            
+            // Try to register for device notifications
+            RegisterForDeviceNotifications();
+        }
+
+        private void RegisterForDeviceNotifications()
         {
             try
             {
+                // Register for HID device notifications (includes controllers)
+                var filter = new DEV_BROADCAST_DEVICEINTERFACE
+                {
+                    dbcc_size = Marshal.SizeOf(typeof(DEV_BROADCAST_DEVICEINTERFACE)),
+                    dbcc_devicetype = DBT_DEVTYP_DEVICEINTERFACE,
+                    dbcc_classguid = new Guid("4d1e55b2-f16f-11cf-88cb-001111000030") // HID GUID
+                };
+
+                IntPtr filterPtr = Marshal.AllocHGlobal(filter.dbcc_size);
+                Marshal.StructureToPtr(filter, filterPtr, false);
+
+                notificationHandle = RegisterDeviceNotification(IntPtr.Zero, filterPtr, 0);
+                
+                if (notificationHandle == IntPtr.Zero)
+                {
+                    Debug.WriteLine("[DualSenseBattery] Failed to register device notifications, using timer fallback");
+                }
+                else
+                {
+                    Debug.WriteLine("[DualSenseBattery] Successfully registered for device notifications");
+                }
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"[DualSenseBattery] Error registering device notifications: {ex.Message}");
+            }
+        }
+
+        private void CheckTimer_Tick(object sender, EventArgs e)
+        {
+            if (isDisposed) return;
+            
+            try
+            {
+                // Force a battery reading check
+                powerStatus?.ForceCheck();
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"[DualSenseBattery] Error in check timer: {ex.Message}");
+            }
+        }
+
+        public void Dispose()
+        {
+            if (isDisposed) return;
+            isDisposed = true;
+
+            try
+            {
+                checkTimer?.Stop();
+                checkTimer?.Dispose();
+
+                if (notificationHandle != IntPtr.Zero)
+                {
+                    UnregisterDeviceNotification(notificationHandle);
+                    notificationHandle = IntPtr.Zero;
+                }
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"[DualSenseBattery] Error disposing DeviceNotificationManager: {ex.Message}");
+            }
+        }
+    }
+
+    /// <summary>
+    /// Manages the fullscreen overlay integration with theme battery elements
+    /// </summary>
+    public class FullscreenOverlayManager : IDisposable
+    {
+        private DispatcherTimer timer;
+        private DualSensePowerStatus dualSenseStatus;
+        private DeviceNotificationManager deviceManager;
+        private PowerStatusBindingProxy bindingProxy;
+        private bool isDisposed = false;
+
+        public FullscreenOverlayManager()
+        {
+            try
+            {
+                dualSenseStatus = new DualSensePowerStatus();
+                deviceManager = new DeviceNotificationManager(dualSenseStatus);
+                bindingProxy = new PowerStatusBindingProxy(dualSenseStatus);
+
                 timer = new DispatcherTimer
                 {
                     Interval = TimeSpan.FromSeconds(1)
                 };
                 timer.Tick += Timer_Tick;
-                timer.Start();
-
-                // Initialize DualSense power status and binding proxy for default-theme rendering
-                dualSenseStatus = new DualSensePowerStatus();
-                bindingProxy = new PowerStatusBindingProxy(dualSenseStatus);
             }
             catch (Exception ex)
             {
-                LogError("Start", ex);
+                Debug.WriteLine($"[DualSenseBattery] Error creating FullscreenOverlayManager: {ex.Message}");
             }
         }
 
-        private void LogError(string operation, Exception ex)
+        public void Start()
         {
             try
             {
-                // Use Playnite's logging if available, otherwise fallback to debug output
-                System.Diagnostics.Debug.WriteLine($"[DualSenseBattery] Error in {operation}: {ex.Message}");
-            }
-            catch
-            {
-                // Last resort - silent fallback to prevent logging errors from causing issues
-            }
-        }
-
-		        private void Timer_Tick(object sender, EventArgs e)
-        {
-            try
-            {
-                // Periodic re-detection for better responsiveness
-                tickCount++;
-                
-                // Use more aggressive re-detection during initial detection mode
-                int currentRedetectionInterval = dualSenseStatus?.IsInInitialDetectionMode == true ? 
-                    INITIAL_REDETECTION_INTERVAL : REDETECTION_INTERVAL;
-                
-                if (tickCount >= currentRedetectionInterval)
+                if (timer != null && !timer.IsEnabled)
                 {
-                    tickCount = 0;
-                    try
-                    {
-                        dualSenseStatus?.ForceRedetection();
-                    }
-                    catch (Exception ex) { LogError("ForceRedetection", ex); }
+                    timer.Start();
                 }
-
-                var main = Application.Current?.MainWindow;
-                if (main == null)
-                {
-                    RemoveInjected();
-                    return;
-                }
-
-                // Detect fullscreen app by window type name containing "FullscreenApp"
-                var isFullscreen = main.GetType().FullName?.IndexOf("FullscreenApp", StringComparison.OrdinalIgnoreCase) >= 0;
-                if (!isFullscreen)
-                {
-                    RemoveInjected();
-                    return;
-                }
-
-				// Find built-in battery slot by common names (default + popular themes)
-                lock (_elementLock)
-                {
-                    if (batteryHost == null)
-                    {
-                        // Prefer PS5 Reborn specific names first so visibility reflects its own toggle
-                        batteryHost = FindByName(main, "CustomBattery")
-                                      ?? FindByName(main, "BatteryStatus")
-                                      ?? FindByName(main, "PART_ElemBatteryStatus")
-                                      ?? FindByName(main, "ElemBatteryStatus")
-                                      ?? FindByName(main, "PART_BatteryStatus")
-                                      ?? FindByName(main, "PART_PS_Battery")
-                                      ?? FindByName(main, "PSBattery")
-                                      ?? FindByName(main, "PS5_Battery")
-                                      ?? FindByName(main, "PS5Battery")
-                                      ?? FindByName(main, "Battery");
-
-                        // Also capture outer root when present (PS5 Reborn uses an outer 'Battery' grid)
-                        batteryRoot = FindByName(main, "Battery");
-                    }
-
-				    // Find percentage element by common names from default theme
-				    if (batteryPercent == null)
-				    {
-					    batteryPercent = FindByName(main, "PART_TextBatteryPercentage")
-									 ?? FindByName(main, "TextBatteryPercentage")
-									 ?? FindByName(main, "BatteryPercentage");
-				    }
-
-                    // Also cache the outer container (PS5 Reborn uses Grid x:Name="Battery")
-                    if (batteryRoot == null)
-                    {
-                        batteryRoot = FindByName(main, "Battery") ?? FindByName(main, "BatteryContainer");
-                    }
-                }
-
-                // If neither host nor percentage element is present, skip this tick
-                if (batteryHost == null && batteryPercent == null)
-                {
-                    RemoveInjected();
-                    return;
-                }
-
-				// New approach: Feed our PowerStatus to the theme battery controls and avoid overlays
-				RemoveInjected();
-				var targets = new List<FrameworkElement>();
-				lock (_elementLock)
-				{
-				    if (batteryHost != null) targets.Add(batteryHost);
-				    if (batteryRoot != null) targets.Add(batteryRoot);
-				    if (batteryPercent != null) targets.Add(batteryPercent);
-				}
-				
-				foreach (var t in targets)
-				{
-					try { t.DataContext = bindingProxy; } 
-					catch (Exception ex) { LogError("SetDataContext", ex); }
-				}
-
-				// Force percentage text to bind to our PowerStatus.PercentCharge so it doesn't use system battery
-				try
-				{
-					if (batteryPercent is TextBlock percentText)
-					{
-						var b = new Binding("PowerStatus.PercentCharge")
-						{
-							Source = bindingProxy,
-							Mode = BindingMode.OneWay,
-							StringFormat = "{0}%"
-						};
-						percentText.SetBinding(TextBlock.TextProperty, b);
-					}
-				}
-				catch (Exception ex) { LogError("SetPercentageBinding", ex); }
-
-				// Respect theme toggles: only hide when controller is disconnected; do not force-show (theme toggle controls it)
-				bool connected = false;
-				try { connected = dualSenseStatus?.IsBatteryAvailable == true; } 
-				catch (Exception ex) { LogError("CheckBatteryAvailable", ex); }
-				
-				if (!connected)
-				{
-					try
-					{
-						FrameworkElement customBattery = null;
-						lock (_elementLock)
-						{
-						    customBattery = batteryRoot != null ? (FindByName(batteryRoot, "CustomBattery") as FrameworkElement) : null;
-						}
-						
-						if (customBattery != null)
-						{
-							// Use SetCurrentValue so theme triggers (ShowBattery) can take effect when reconnected
-							customBattery.SetCurrentValue(UIElement.VisibilityProperty, Visibility.Collapsed);
-						}
-						else if (batteryHost is UIElement uh)
-						{
-							uh.SetCurrentValue(UIElement.VisibilityProperty, Visibility.Collapsed);
-						}
-						if (batteryPercent is UIElement up)
-						{
-							up.SetCurrentValue(UIElement.VisibilityProperty, Visibility.Collapsed);
-						}
-					}
-					catch (Exception ex) { LogError("HideBatteryElements", ex); }
-				}
             }
             catch (Exception ex)
             {
-                LogError("Timer_Tick", ex);
+                Debug.WriteLine($"[DualSenseBattery] Error starting FullscreenOverlayManager: {ex.Message}");
             }
         }
 
-        private void EnsureInjectedAsSibling(Panel parent, FrameworkElement reference)
-        {
-            if (injected != null) return;
-            if (parent == null) return;
-
-            var control = new Views.AutoSystemBatteryReplacementControl
-            {
-                IsHitTestVisible = false,
-                Focusable = false,
-                HorizontalAlignment = HorizontalAlignment.Left,
-                VerticalAlignment = VerticalAlignment.Top,
-                Margin = new Thickness(0)
-            };
-
-            // Position by copying layout and attached properties from reference for 1:1 overlay
-            if (reference != null)
-            {
-                CopyAttachedLayout(control, reference);
-                CopyLayoutProperties(control, reference);
-                // Avoid inheriting theme's scale transforms (e.g., PS5 Reborn BatteryStatus ScaleX=0.28)
-                try
-                {
-                    if (reference.RenderTransform is ScaleTransform st && (Math.Abs(st.ScaleX - 1) > 0.01 || Math.Abs(st.ScaleY - 1) > 0.01))
-                    {
-                        control.RenderTransform = Transform.Identity;
-                    }
-                }
-                catch { }
-                try
-                {
-                    if (reference.LayoutTransform is ScaleTransform st2 && (Math.Abs(st2.ScaleX - 1) > 0.01 || Math.Abs(st2.ScaleY - 1) > 0.01))
-                    {
-                        control.LayoutTransform = Transform.Identity;
-                    }
-                }
-                catch { }
-                try { Panel.SetZIndex(control, Panel.GetZIndex(reference) + 1); } catch { }
-            }
-
-            parent.Children.Add(control);
-            injected = control;
-        }
-
-        private void EnsureInjectedInside(Panel parent, FrameworkElement reference)
-        {
-            if (injected != null) return;
-            if (parent == null) return;
-
-            var control = new Views.AutoSystemBatteryReplacementControl
-            {
-                IsHitTestVisible = false,
-                Focusable = false,
-                HorizontalAlignment = HorizontalAlignment.Left,
-                VerticalAlignment = VerticalAlignment.Top,
-                Margin = new Thickness(0)
-            };
-
-            if (reference != null)
-            {
-                CopyAttachedLayout(control, reference);
-                CopyLayoutProperties(control, reference);
-                try { Panel.SetZIndex(control, Panel.GetZIndex(reference) + 1); } catch { }
-            }
-
-            parent.Children.Add(control);
-            injected = control;
-        }
-
-        private Panel GetParentPanel(FrameworkElement elem)
-        {
-            if (elem == null) return null;
-            DependencyObject current = elem;
-            while (current != null)
-            {
-                current = VisualTreeHelper.GetParent(current);
-                if (current is Panel p)
-                {
-                    return p;
-                }
-            }
-            return null;
-        }
-
-        private void RemoveInjected()
-        {
-            if (injected == null) return;
-            var parent = VisualTreeHelper.GetParent(injected) as Panel;
-            try { parent?.Children.Remove(injected); } catch { }
-            injected = null;
-        }
-
-        /// <summary>
-        /// Clears cached UI element references to prevent memory leaks
-        /// </summary>
-        private void ClearCachedElements()
-        {
-            lock (_elementLock)
-            {
-                batteryHost = null;
-                batteryRoot = null;
-                batteryPercent = null;
-            }
-        }
-
-        /// <summary>
-        /// Disposes resources and cleans up memory
-        /// </summary>
-        public void Dispose()
+        public void Stop()
         {
             try
             {
                 timer?.Stop();
-                timer = null;
-                
-                RemoveInjected();
-                ClearCachedElements();
-                
-                dualSenseStatus?.Dispose();
-                dualSenseStatus = null;
-                
-                bindingProxy = null;
             }
             catch (Exception ex)
             {
-                LogError("Dispose", ex);
+                Debug.WriteLine($"[DualSenseBattery] Error stopping FullscreenOverlayManager: {ex.Message}");
             }
         }
 
-        private void CopyAttachedLayout(FrameworkElement dest, FrameworkElement src)
+        private void Timer_Tick(object sender, EventArgs e)
         {
-            // Grid
-            try { Grid.SetRow(dest, Grid.GetRow(src)); } catch { }
-            try { Grid.SetColumn(dest, Grid.GetColumn(src)); } catch { }
-            try { Grid.SetRowSpan(dest, Grid.GetRowSpan(src)); } catch { }
-            try { Grid.SetColumnSpan(dest, Grid.GetColumnSpan(src)); } catch { }
-
-            // DockPanel
-            try { DockPanel.SetDock(dest, DockPanel.GetDock(src)); } catch { }
-
-            // Canvas
-            try { Canvas.SetLeft(dest, Canvas.GetLeft(src)); } catch { }
-            try { Canvas.SetTop(dest, Canvas.GetTop(src)); } catch { }
-            try { Canvas.SetRight(dest, Canvas.GetRight(src)); } catch { }
-            try { Canvas.SetBottom(dest, Canvas.GetBottom(src)); } catch { }
-
-            // ZIndex
-            try { Panel.SetZIndex(dest, Panel.GetZIndex(src)); } catch { }
-        }
-
-        private void CopyLayoutProperties(FrameworkElement dest, FrameworkElement src)
-        {
-            try { dest.Margin = src.Margin; } catch { }
-            try { dest.HorizontalAlignment = src.HorizontalAlignment; } catch { }
-            try { dest.VerticalAlignment = src.VerticalAlignment; } catch { }
-            try { dest.Width = src.Width; } catch { }
-            try { dest.Height = src.Height; } catch { }
-            try { dest.MinWidth = src.MinWidth; } catch { }
-            try { dest.MinHeight = src.MinHeight; } catch { }
-            try { dest.MaxWidth = src.MaxWidth; } catch { }
-            try { dest.MaxHeight = src.MaxHeight; } catch { }
-            try { dest.FlowDirection = src.FlowDirection; } catch { }
-            try { dest.UseLayoutRounding = src.UseLayoutRounding; } catch { }
-            try { dest.SnapsToDevicePixels = src.SnapsToDevicePixels; } catch { }
-            try { dest.ClipToBounds = src.ClipToBounds; } catch { }
-            try { dest.RenderTransformOrigin = src.RenderTransformOrigin; } catch { }
+            if (isDisposed) return;
 
             try
             {
-                if (src.LayoutTransform is System.Windows.Media.Transform lt)
-                {
-                    dest.LayoutTransform = TryCloneTransform(lt) ?? lt;
-                }
-            }
-            catch { }
+                // Find theme battery elements and bind our data
+                var mainWindow = Application.Current?.MainWindow;
+                if (mainWindow == null) return;
 
-            try
-            {
-                if (src.RenderTransform is System.Windows.Media.Transform rt)
+                // Look for battery elements in the theme
+                var batteryElements = FindBatteryElements(mainWindow);
+                
+                foreach (var element in batteryElements)
                 {
-                    dest.RenderTransform = TryCloneTransform(rt) ?? rt;
+                    try
+                    {
+                        // Set our data context to override system battery
+                        element.DataContext = bindingProxy;
+                        
+                        // Control visibility based on controller connection and theme settings
+                        bool shouldShow = dualSenseStatus.IsBatteryAvailable && 
+                                        IsBatteryStatusEnabled() && 
+                                        IsBatteryPercentageEnabled();
+                        
+                        element.Visibility = shouldShow ? Visibility.Visible : Visibility.Collapsed;
+                    }
+                    catch (Exception ex)
+                    {
+                        Debug.WriteLine($"[DualSenseBattery] Error binding battery element: {ex.Message}");
+                    }
                 }
             }
-            catch { }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"[DualSenseBattery] Error in Timer_Tick: {ex.Message}");
+            }
         }
 
-        private System.Windows.Media.Transform TryCloneTransform(System.Windows.Media.Transform t)
+        private List<FrameworkElement> FindBatteryElements(FrameworkElement root)
+        {
+            var elements = new List<FrameworkElement>();
+            
+            try
+            {
+                // Common battery element names across themes
+                var batteryNames = new[] 
+                { 
+                    "BatteryStatus", "BatteryIcon", "BatteryIndicator", "BatteryLevel",
+                    "batteryStatus", "batteryIcon", "batteryIndicator", "batteryLevel",
+                    "BatteryPercent", "batteryPercent", "BatteryText", "batteryText"
+                };
+
+                foreach (var name in batteryNames)
+                {
+                    var element = root.FindName(name) as FrameworkElement;
+                    if (element != null)
+                    {
+                        elements.Add(element);
+                    }
+                }
+
+                // Also search for elements with "battery" in their name
+                FindElementsByNameContains(root, "battery", elements);
+                FindElementsByNameContains(root, "Battery", elements);
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"[DualSenseBattery] Error finding battery elements: {ex.Message}");
+            }
+
+            return elements;
+        }
+
+        private void FindElementsByNameContains(FrameworkElement root, string nameContains, List<FrameworkElement> results)
         {
             try
             {
-                if (t is System.Windows.Freezable f)
+                if (root.Name?.Contains(nameContains, StringComparison.OrdinalIgnoreCase) == true)
                 {
-                    var clone = f.CloneCurrentValue() as System.Windows.Media.Transform;
-                    return clone;
+                    results.Add(root);
+                }
+
+                // Search children
+                if (root is Panel panel)
+                {
+                    foreach (var child in panel.Children)
+                    {
+                        if (child is FrameworkElement childElement)
+                        {
+                            FindElementsByNameContains(childElement, nameContains, results);
+                        }
+                    }
                 }
             }
-            catch { }
-            return null;
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"[DualSenseBattery] Error searching elements: {ex.Message}");
+            }
         }
 
-        private bool IsEffectivelyVisible(UIElement elem)
+        private bool IsBatteryStatusEnabled()
         {
-            if (elem == null) return false;
-            if (elem.Visibility != Visibility.Visible) return false;
-            if (!elem.IsVisible) return false;
-
-            // Check opacity on element and ancestors
-            double opacity = 1.0;
-            DependencyObject cur = elem;
-            while (cur is UIElement ui)
-            {
-                opacity *= ui.Opacity;
-                if (opacity <= 0.01) return false;
-                cur = VisualTreeHelper.GetParent(cur);
-            }
-
-            // If transformed scale is ~0, treat as hidden
             try
             {
-                if (elem is FrameworkElement fe && fe.RenderTransform is ScaleTransform st)
-                {
-                    if (Math.Abs(st.ScaleX) < 0.05 || Math.Abs(st.ScaleY) < 0.05)
-                        return false;
-                }
+                // Check if Playnite's battery status setting is enabled
+                var settings = Playnite.SDK.PlayniteSettings.Current;
+                return settings?.ShowBatteryStatus == true;
             }
-            catch { }
-
-            // Ensure it has size when possible
-            if (elem is FrameworkElement fe2)
+            catch
             {
-                if (fe2.ActualWidth < 1 || fe2.ActualHeight < 1) return false;
+                return true; // Default to enabled if we can't check
             }
-
-            return true;
         }
 
-        private FrameworkElement FindByName(DependencyObject root, string name)
+        private bool IsBatteryPercentageEnabled()
         {
-            if (root is FrameworkElement fe && fe.Name == name)
+            try
             {
-                return fe;
+                // Check if Playnite's battery percentage setting is enabled
+                var settings = Playnite.SDK.PlayniteSettings.Current;
+                return settings?.ShowBatteryPercentage == true;
             }
-
-            int count = VisualTreeHelper.GetChildrenCount(root);
-            for (int i = 0; i < count; i++)
+            catch
             {
-                var child = VisualTreeHelper.GetChild(root, i);
-                var found = FindByName(child, name);
-                if (found != null) return found;
+                return true; // Default to enabled if we can't check
             }
+        }
 
-            return null;
+        public void Dispose()
+        {
+            if (isDisposed) return;
+            isDisposed = true;
+
+            try
+            {
+                Stop();
+                timer?.Dispose();
+                deviceManager?.Dispose();
+                dualSenseStatus?.Dispose();
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"[DualSenseBattery] Error disposing FullscreenOverlayManager: {ex.Message}");
+            }
         }
     }
 
-    internal class PowerStatusBindingProxy
+    /// <summary>
+    /// Proxy class to bind DualSense battery data to theme elements
+    /// </summary>
+    public class PowerStatusBindingProxy : INotifyPropertyChanged
     {
-        public DualSensePowerStatus PowerStatus { get; }
-        public PowerStatusBindingProxy(DualSensePowerStatus status)
+        private readonly DualSensePowerStatus powerStatus;
+
+        public PowerStatusBindingProxy(DualSensePowerStatus powerStatus)
         {
-            PowerStatus = status;
+            this.powerStatus = powerStatus;
+            this.powerStatus.PropertyChanged += (s, e) => OnPropertyChanged(e.PropertyName);
+        }
+
+        public int BatteryPercent => powerStatus.PercentCharge;
+        public bool IsCharging => powerStatus.IsCharging;
+        public bool IsBatteryAvailable => powerStatus.IsBatteryAvailable;
+        public BatteryChargeLevel BatteryChargeLevel => powerStatus.Charge;
+
+        public event PropertyChangedEventHandler PropertyChanged;
+        protected virtual void OnPropertyChanged([CallerMemberName] string propertyName = null)
+        {
+            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(propertyName));
         }
     }
 
-    // Custom power status implementation that reads DualSense battery
+    /// <summary>
+    /// Manages DualSense battery status with real-time detection and efficient polling
+    /// </summary>
     public class DualSensePowerStatus : INotifyPropertyChanged, IDisposable
     {
-        private readonly string helperPath;
-        private readonly SynchronizationContext context;
-        private CancellationTokenSource watcherToken;
-        private Task currentTask;
-        private readonly object _pollingLock = new object(); // Thread safety for polling state
-        private readonly object _dataLock = new object(); // Thread safety for battery data
-
         // Performance optimization: highly optimized adaptive polling intervals
         // DualSense battery changes slowly (2-4 hours to discharge, 1-2 hours to charge)
         // 3-5 minute intervals provide 90%+ CPU reduction while maintaining adequate responsiveness
         private const int NORMAL_POLL_INTERVAL = 5000;   // 5 seconds - connected (discharging)
         private const int FAST_POLL_INTERVAL = 3000;    // 3 seconds - connected (charging)
-        private const int SLOW_POLL_INTERVAL = 1000;    // 1 second - disconnected
-        private const int INITIAL_DETECTION_INTERVAL = 250; // 0.25 seconds - ultra fast initial detection
-        private const int INITIAL_DETECTION_DURATION = 300000; // 5 minutes - much longer initial detection window
-        private const int RAPID_RETRY_INTERVAL = 250; // 0.25 seconds - ultra fast reconnection detection
-        private const int RAPID_RETRY_DURATION = 5000; // 5 seconds - rapid probe window
-        private const int CONFIRMATION_POLL_INTERVAL = 1000; // 1 second - confirmation polling after reconnection
-        private const int CONFIRMATION_DURATION = 10000; // 10 seconds - confirmation window
-        private int currentPollInterval = INITIAL_DETECTION_INTERVAL;
-        
-        // Fast initial connection detection
-        private DateTime lastConnectionTime = DateTime.Now; // Start with current time
-        private bool isInInitialDetectionMode = true;
-        private DateTime lastDisconnectTime = DateTime.Now; // Track disconnect time for aggressive re-detection
-        private DateTime lastReconnectionTime = DateTime.MinValue; // Track reconnection time for confirmation
-        private bool isInConfirmationMode = false; // Track if we're in confirmation mode after reconnection
-        private int consecutiveConnections = 0; // Track consecutive successful connections
-        private int consecutiveDisconnections = 0; // Track consecutive disconnections
+        private const int RAPID_POLL_INTERVAL = 1000;   // 1 second - rapid detection
+
+        private readonly object _dataLock = new object();
+        private readonly object _pollingLock = new object();
+        private CancellationTokenSource _cancellationTokenSource;
+        private Task _pollingTask;
+        private bool _isDisposed = false;
 
         private int _percentCharge = 0;
         private bool _isCharging = false;
@@ -687,151 +562,129 @@ namespace DualSenseBattery
             }
         }
 
-        public bool IsInInitialDetectionMode
-        {
-            get 
-            { 
-                lock (_pollingLock) return isInInitialDetectionMode; 
-            }
-        }
-
         public DualSensePowerStatus()
         {
             try
             {
-                context = SynchronizationContext.Current;
-                var pluginDir = Path.GetDirectoryName(System.Reflection.Assembly.GetExecutingAssembly().Location);
-                helperPath = Path.Combine(pluginDir ?? "", "Helper", "DualSenseBatteryHelper.exe");
-                
+                _cancellationTokenSource = new CancellationTokenSource();
                 StartWatcher();
             }
             catch (Exception ex)
             {
-                LogError("Constructor", ex);
+                Debug.WriteLine($"[DualSenseBattery] Error in DualSensePowerStatus constructor: {ex.Message}");
             }
         }
 
-        public async void StartWatcher()
+        /// <summary>
+        /// Forces an immediate battery check (called by device notifications)
+        /// </summary>
+        public void ForceCheck()
         {
             try
             {
-                lock (_pollingLock)
+                var reading = GetDualSenseReading();
+                if (reading != null)
                 {
-                    // Cancel existing watcher
-                    watcherToken?.Cancel();
+                    ApplyReading(reading);
                 }
-                
-                // Wait for existing task to complete
-                if (currentTask != null)
+                else
                 {
-                    try
-                    {
-                        await currentTask;
-                    }
-                    catch (OperationCanceledException)
-                    {
-                        // Expected when cancelling
-                    }
-                    catch (Exception ex)
-                    {
-                        LogError("WaitForExistingTask", ex);
-                    }
-                }
-
-                lock (_pollingLock)
-                {
-                    // Create new cancellation token and task
-                    watcherToken = new CancellationTokenSource();
-                    var token = watcherToken.Token;
-                    
-                    currentTask = Task.Run(async () =>
-                    {
-                        var dispatcher = System.Windows.Application.Current?.Dispatcher;
-                        
-                        try
-                        {
-                            while (!token.IsCancellationRequested)
-                            {
-                                try
-                                {
-                                    // Check if we should force re-detection
-                                    if (ShouldForceRedetection())
-                                    {
-                                        ResetDetectionState();
-                                    }
-                                    
-                                    var reading = GetDualSenseReading();
-                                    if (reading != null)
-                                    {
-                                        if (dispatcher != null)
-                                        {
-                                            try { dispatcher.Invoke(() => ApplyReading(reading)); } 
-                                            catch (Exception ex) { LogError("DispatcherInvoke", ex); }
-                                        }
-                                        else if (context != null)
-                                        {
-                                            try { context.Post((a) => ApplyReading(reading), null); } 
-                                            catch (Exception ex) { LogError("ContextPost", ex); }
-                                        }
-                                        else
-                                        {
-                                            ApplyReading(reading);
-                                        }
-                                    }
-                                    else
-                                    {
-                                        // No reading returned - treat as disconnected
-                                        var disconnectedReading = new BatteryReading { Connected = false };
-                                        if (dispatcher != null)
-                                        {
-                                            try { dispatcher.Invoke(() => ApplyReading(disconnectedReading)); } 
-                                            catch (Exception ex) { LogError("DispatcherInvoke", ex); }
-                                        }
-                                        else if (context != null)
-                                        {
-                                            try { context.Post((a) => ApplyReading(disconnectedReading), null); } 
-                                            catch (Exception ex) { LogError("ContextPost", ex); }
-                                        }
-                                        else
-                                        {
-                                            ApplyReading(disconnectedReading);
-                                        }
-                                    }
-                                }
-                                catch (Exception ex)
-                                {
-                                    LogError("WatcherLoop", ex);
-                                }
-
-                                // Get current interval
-                                int interval;
-                                lock (_pollingLock)
-                                {
-                                    interval = currentPollInterval;
-                                }
-                                
-                                // Wait with cancellation support
-                                try
-                                {
-                                    await Task.Delay(interval, token);
-                                }
-                                catch (OperationCanceledException)
-                                {
-                                    // Task was cancelled, exit loop
-                                    break;
-                                }
-                            }
-                        }
-                        catch (Exception ex)
-                        {
-                            LogError("WatcherTask", ex);
-                        }
-                    }, token);
+                    // No reading means disconnected
+                    ApplyReading(new BatteryReading { Connected = false, Level = 0, Charging = false });
                 }
             }
             catch (Exception ex)
             {
-                LogError("StartWatcher", ex);
+                Debug.WriteLine($"[DualSenseBattery] Error in ForceCheck: {ex.Message}");
+            }
+        }
+
+        private void StartWatcher()
+        {
+            try
+            {
+                if (_pollingTask != null && !_pollingTask.IsCompleted)
+                {
+                    return; // Already running
+                }
+
+                _pollingTask = Task.Run(async () =>
+                {
+                    try
+                    {
+                        while (!_cancellationTokenSource.Token.IsCancellationRequested)
+                        {
+                            try
+                            {
+                                var reading = GetDualSenseReading();
+                                if (reading != null)
+                                {
+                                    ApplyReading(reading);
+                                    
+                                    // Use adaptive polling based on connection state
+                                    int pollInterval = reading.Connected 
+                                        ? (reading.Charging ? FAST_POLL_INTERVAL : NORMAL_POLL_INTERVAL)
+                                        : RAPID_POLL_INTERVAL;
+                                    
+                                    await Task.Delay(pollInterval, _cancellationTokenSource.Token);
+                                }
+                                else
+                                {
+                                    // No reading means disconnected
+                                    ApplyReading(new BatteryReading { Connected = false, Level = 0, Charging = false });
+                                    await Task.Delay(RAPID_POLL_INTERVAL, _cancellationTokenSource.Token);
+                                }
+                            }
+                            catch (OperationCanceledException)
+                            {
+                                break; // Normal cancellation
+                            }
+                            catch (Exception ex)
+                            {
+                                Debug.WriteLine($"[DualSenseBattery] Error in polling loop: {ex.Message}");
+                                await Task.Delay(RAPID_POLL_INTERVAL, _cancellationTokenSource.Token);
+                            }
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        Debug.WriteLine($"[DualSenseBattery] Error in polling task: {ex.Message}");
+                    }
+                }, _cancellationTokenSource.Token);
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"[DualSenseBattery] Error starting watcher: {ex.Message}");
+            }
+        }
+
+        private void StopWatcher()
+        {
+            try
+            {
+                _cancellationTokenSource?.Cancel();
+                _pollingTask?.Wait(TimeSpan.FromSeconds(5)); // Wait up to 5 seconds
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"[DualSenseBattery] Error stopping watcher: {ex.Message}");
+            }
+        }
+
+        private void ApplyReading(BatteryReading r)
+        {
+            bool wasConnected = IsBatteryAvailable;
+            IsBatteryAvailable = r.Connected;
+
+            if (r.Connected)
+            {
+                PercentCharge = r.Level;
+                IsCharging = r.Charging;
+            }
+            else
+            {
+                PercentCharge = 0;
+                IsCharging = false;
             }
         }
 
@@ -839,323 +692,74 @@ namespace DualSenseBattery
         {
             try
             {
+                var helperPath = Path.Combine(Path.GetDirectoryName(typeof(PluginImpl).Assembly.Location), "Helper", "DualSenseBatteryHelper.exe");
+                
                 if (!File.Exists(helperPath))
+                {
+                    Debug.WriteLine($"[DualSenseBattery] Helper not found at: {helperPath}");
                     return null;
+                }
 
-                var psi = new ProcessStartInfo
+                var startInfo = new ProcessStartInfo
                 {
                     FileName = helperPath,
-                    RedirectStandardOutput = true,
                     UseShellExecute = false,
+                    RedirectStandardOutput = true,
+                    RedirectStandardError = true,
                     CreateNoWindow = true,
-                    WorkingDirectory = Path.GetDirectoryName(helperPath) ?? ""
+                    WindowStyle = ProcessWindowStyle.Hidden
                 };
 
-                using (var proc = Process.Start(psi))
+                using (var process = Process.Start(startInfo))
                 {
-                    if (proc == null)
-                        return null;
+                    if (process == null) return null;
 
-                    string output = proc.StandardOutput.ReadToEnd().Trim();
-                    proc.WaitForExit(1500);
-
-                    if (string.IsNullOrWhiteSpace(output))
-                        return null;
-
-                    return ParseReading(output);
-                }
-            }
-            catch (Exception ex)
-            {
-                LogError("GetDualSenseReading", ex);
-                return null;
-            }
-        }
-
-        private BatteryReading ParseReading(string json)
-        {
-            try
-            {
-                var r = new BatteryReading
-                {
-                    Connected = json.IndexOf("\"connected\":true", StringComparison.OrdinalIgnoreCase) >= 0,
-                    Charging = json.IndexOf("\"charging\":true", StringComparison.OrdinalIgnoreCase) >= 0,
-                    Full = json.IndexOf("\"full\":true", StringComparison.OrdinalIgnoreCase) >= 0
-                };
-
-                r.Level = ExtractInt(json, "\"level\":");
-                if (r.Level < 0) r.Level = 0;
-                if (r.Level > 100) r.Level = 100;
-
-                return r;
-            }
-            catch (Exception ex)
-            {
-                LogError("ParseReading", ex);
-                return null;
-            }
-        }
-
-        private int ExtractInt(string src, string key)
-        {
-            int i = src.IndexOf(key, StringComparison.OrdinalIgnoreCase);
-            if (i < 0) return 0;
-            i += key.Length;
-
-            int end = i;
-            while (end < src.Length && (char.IsWhiteSpace(src[end]) || (src[end] >= '0' && src[end] <= '9')))
-                end++;
-
-            var num = src.Substring(i, end - i).Trim();
-            int val;
-            return int.TryParse(num, out val) ? val : 0;
-        }
-
-        private void ApplyReading(BatteryReading r)
-        {
-            bool wasConnected = IsBatteryAvailable;
-            IsBatteryAvailable = r.Connected;
-            
-            if (r.Connected)
-            {
-                PercentCharge = r.Level;
-                IsCharging = r.Charging;
-                
-                // Update connection tracking
-                lastConnectionTime = DateTime.Now;
-                consecutiveConnections++;
-                consecutiveDisconnections = 0;
-                
-                // If we were disconnected and now connected, this is a reconnection
-                if (!wasConnected)
-                {
-                    lastReconnectionTime = DateTime.Now;
-                    isInConfirmationMode = true;
-                    isInInitialDetectionMode = false;
+                    var output = process.StandardOutput.ReadToEnd();
+                    var error = process.StandardError.ReadToEnd();
                     
-                    // Use confirmation polling for a short period to ensure stable connection
-                    lock (_pollingLock)
+                    if (!process.WaitForExit(5000)) // 5 second timeout
                     {
-                        currentPollInterval = CONFIRMATION_POLL_INTERVAL;
+                        try { process.Kill(); } catch { }
+                        return null;
                     }
-                    return;
-                }
-                
-                // If we're in confirmation mode, check if we should switch to normal polling
-                if (isInConfirmationMode)
-                {
-                    var timeSinceReconnection = DateTime.Now - lastReconnectionTime;
-                    if (timeSinceReconnection.TotalMilliseconds > CONFIRMATION_DURATION)
-                    {
-                        isInConfirmationMode = false;
-                        int newInterval = r.Charging ? FAST_POLL_INTERVAL : NORMAL_POLL_INTERVAL;
-                        lock (_pollingLock)
-                        {
-                            currentPollInterval = newInterval;
-                        }
-                        return;
-                    }
-                    return; // Stay in confirmation mode
-                }
-                
-                // If we're in initial detection mode and found a connection, switch to normal polling
-                if (isInInitialDetectionMode)
-                {
-                    isInInitialDetectionMode = false;
-                    int newInterval = r.Charging ? FAST_POLL_INTERVAL : NORMAL_POLL_INTERVAL;
-                    lock (_pollingLock)
-                    {
-                        currentPollInterval = newInterval;
-                    }
-                    return;
-                }
-                
-                // Normal adaptive polling: faster when charging, normal when discharging
-                int adaptiveInterval = r.Charging ? FAST_POLL_INTERVAL : NORMAL_POLL_INTERVAL;
-                lock (_pollingLock)
-                {
-                    if (adaptiveInterval != currentPollInterval)
-                    {
-                        currentPollInterval = adaptiveInterval;
-                    }
-                }
-            }
-            else
-            {
-                PercentCharge = 0;
-                IsCharging = false;
-                
-                // Update disconnection tracking
-                consecutiveDisconnections++;
-                consecutiveConnections = 0;
-                
-                // Track disconnect time for aggressive re-detection
-                if (wasConnected)
-                {
-                    lastDisconnectTime = DateTime.Now;
-                    isInConfirmationMode = false; // Exit confirmation mode on disconnect
-                }
-                
-                // If we're in initial detection mode, stay in rapid polling for much longer
-                if (isInInitialDetectionMode)
-                {
-                    var timeSinceStart = DateTime.Now - lastConnectionTime;
-                    if (timeSinceStart.TotalMilliseconds > INITIAL_DETECTION_DURATION)
-                    {
-                        isInInitialDetectionMode = false;
-                        lock (_pollingLock)
-                        {
-                            currentPollInterval = RAPID_RETRY_INTERVAL; // Use rapid polling instead of slow
-                        }
-                    }
-                    else
-                    {
-                        // Stay in rapid polling during initial detection
-                        lock (_pollingLock)
-                        {
-                            if (currentPollInterval != INITIAL_DETECTION_INTERVAL)
-                            {
-                                currentPollInterval = INITIAL_DETECTION_INTERVAL;
-                            }
-                        }
-                    }
-                    return;
-                }
-                
-                // When disconnected, always use rapid polling for quick reconnection detection
-                lock (_pollingLock)
-                {
-                    // Always use rapid polling when disconnected to detect reconnection quickly
-                    if (currentPollInterval != RAPID_RETRY_INTERVAL)
-                    {
-                        currentPollInterval = RAPID_RETRY_INTERVAL;
-                    }
-                }
-            }
-        }
 
-        public void UpdateBatteryStatus(bool connected, int level, bool charging)
-        {
-            IsBatteryAvailable = connected;
-            
-            if (connected)
-            {
-                PercentCharge = level;
-                IsCharging = charging;
+                    if (process.ExitCode != 0)
+                    {
+                        Debug.WriteLine($"[DualSenseBattery] Helper error: {error}");
+                        return null;
+                    }
+
+                    try
+                    {
+                        var reading = System.Text.Json.JsonSerializer.Deserialize<BatteryReading>(output);
+                        return reading;
+                    }
+                    catch (Exception ex)
+                    {
+                        Debug.WriteLine($"[DualSenseBattery] JSON parse error: {ex.Message}, Output: {output}");
+                        return null;
+                    }
+                }
             }
-            else
+            catch (Exception ex)
             {
-                PercentCharge = 0;
-                IsCharging = false;
+                Debug.WriteLine($"[DualSenseBattery] Error getting DualSense reading: {ex.Message}");
+                return null;
             }
         }
 
         private void UpdateChargeLevel()
         {
-            var charge = PercentCharge;
-            if (charge > 85)
-            {
-                Charge = BatteryChargeLevel.High;
-            }
-            else if (charge > 40)
-            {
-                Charge = BatteryChargeLevel.Medium;
-            }
-            else if (charge > 10)
-            {
-                Charge = BatteryChargeLevel.Low;
-            }
-            else
-            {
-                Charge = BatteryChargeLevel.Critical;
-            }
-        }
+            var level = PercentCharge;
+            BatteryChargeLevel newLevel;
 
-        public async void StopWatcher()
-        {
-            try
-            {
-                lock (_pollingLock)
-                {
-                    watcherToken?.Cancel();
-                }
-                
-                if (currentTask != null)
-                {
-                    try
-                    {
-                        await currentTask;
-                    }
-                    catch (OperationCanceledException)
-                    {
-                        // Expected when cancelling
-                    }
-                    catch (Exception ex)
-                    {
-                        LogError("StopWatcher", ex);
-                    }
-                }
-            }
-            catch (Exception ex)
-            {
-                LogError("StopWatcher", ex);
-            }
-        }
+            if (level >= 80) newLevel = BatteryChargeLevel.Full;
+            else if (level >= 60) newLevel = BatteryChargeLevel.High;
+            else if (level >= 40) newLevel = BatteryChargeLevel.Medium;
+            else if (level >= 20) newLevel = BatteryChargeLevel.Low;
+            else newLevel = BatteryChargeLevel.Critical;
 
-        public void Dispose()
-        {
-            StopWatcher();
-        }
-
-        /// <summary>
-        /// Resets the detection state to handle reconnection scenarios
-        /// </summary>
-        private void ResetDetectionState()
-        {
-            lock (_pollingLock)
-            {
-                isInInitialDetectionMode = true;
-                isInConfirmationMode = false;
-                lastConnectionTime = DateTime.Now;
-                lastReconnectionTime = DateTime.MinValue;
-                consecutiveConnections = 0;
-                consecutiveDisconnections = 0;
-                currentPollInterval = RAPID_RETRY_INTERVAL; // Use rapid polling for re-detection
-            }
-        }
-
-        /// <summary>
-        /// Forces a re-detection cycle for better responsiveness
-        /// </summary>
-        public void ForceRedetection()
-        {
-            try
-            {
-                ResetDetectionState();
-                StartWatcher(); // Restart with new detection state
-            }
-            catch (Exception ex)
-            {
-                LogError("ForceRedetection", ex);
-            }
-        }
-
-        /// <summary>
-        /// Checks if we should force re-detection based on disconnect duration and consecutive failures
-        /// </summary>
-        private bool ShouldForceRedetection()
-        {
-            if (IsBatteryAvailable) return false; // Don't force if connected
-            
-            var disconnectDuration = DateTime.Now - lastDisconnectTime;
-            
-            // Force re-detection if:
-            // 1. Disconnected for more than 2 seconds, OR
-            // 2. We've had many consecutive disconnections (indicating potential detection issues), OR
-            // 3. We're in initial detection mode and haven't found a controller yet
-            return disconnectDuration.TotalSeconds > 2 || 
-                   consecutiveDisconnections > 5 || 
-                   (isInInitialDetectionMode && consecutiveDisconnections > 0);
+            Charge = newLevel;
         }
 
         public event PropertyChangedEventHandler PropertyChanged;
@@ -1164,32 +768,42 @@ namespace DualSenseBattery
             PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(propertyName));
         }
 
-        private void LogError(string operation, Exception ex)
+        public void Dispose()
         {
+            if (_isDisposed) return;
+            _isDisposed = true;
+
             try
             {
-                System.Diagnostics.Debug.WriteLine($"[DualSensePowerStatus] Error in {operation}: {ex.Message}");
+                StopWatcher();
+                _cancellationTokenSource?.Dispose();
             }
-            catch
+            catch (Exception ex)
             {
-                // Last resort - silent fallback
+                Debug.WriteLine($"[DualSenseBattery] Error disposing DualSensePowerStatus: {ex.Message}");
             }
-        }
-
-        private class BatteryReading
-        {
-            public bool Connected { get; set; }
-            public int Level { get; set; }
-            public bool Charging { get; set; }
-            public bool Full { get; set; }
         }
     }
 
+    /// <summary>
+    /// Represents a battery reading from the DualSense controller
+    /// </summary>
+    public class BatteryReading
+    {
+        public bool Connected { get; set; }
+        public int Level { get; set; }
+        public bool Charging { get; set; }
+    }
+
+    /// <summary>
+    /// Battery charge level enumeration
+    /// </summary>
     public enum BatteryChargeLevel
     {
         Critical,
         Low,
         Medium,
-        High
+        High,
+        Full
     }
 }
