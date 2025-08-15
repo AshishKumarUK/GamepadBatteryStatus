@@ -832,16 +832,16 @@ namespace DualSenseBattery
                 possiblePaths.Add(@"C:\Games\Playnite\Extensions\DualSenseBattery_fbd2c2e6-9c1b-49b6-9c0d-1c5d3c0a9a6a\Helper\DualSenseBatteryHelper.exe");
                 
                 // Path 2: Relative to plugin DLL (current approach)
-                var pluginDir = Path.GetDirectoryName(typeof(PluginImpl).Assembly.Location);
+                var pluginDir = System.IO.Path.GetDirectoryName(typeof(PluginImpl).Assembly.Location);
                 if (!string.IsNullOrEmpty(pluginDir))
                 {
-                    possiblePaths.Add(Path.Combine(pluginDir, "Helper", "DualSenseBatteryHelper.exe"));
+                    possiblePaths.Add(System.IO.Path.Combine(pluginDir, "Helper", "DualSenseBatteryHelper.exe"));
                 }
                 
                 // Path 3: Look for the helper in the same directory as the plugin DLL
                 if (!string.IsNullOrEmpty(pluginDir))
                 {
-                    possiblePaths.Add(Path.Combine(pluginDir, "DualSenseBatteryHelper.exe"));
+                    possiblePaths.Add(System.IO.Path.Combine(pluginDir, "DualSenseBatteryHelper.exe"));
                 }
                 
                 // Path 4: Look in the Playnite extensions directory structure
@@ -854,7 +854,7 @@ namespace DualSenseBattery
                         @"C:\Games\Playnite",
                         @"C:\Program Files\Playnite",
                         @"C:\Program Files (x86)\Playnite",
-                        Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Playnite")
+                        System.IO.Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Playnite")
                     };
                     
                     foreach (var path in commonPaths)
@@ -870,13 +870,13 @@ namespace DualSenseBattery
                 if (!string.IsNullOrEmpty(playniteDir))
                 {
                     // Look for our extension directory
-                    var extensionsDir = Path.Combine(playniteDir, "Extensions");
+                    var extensionsDir = System.IO.Path.Combine(playniteDir, "Extensions");
                     if (Directory.Exists(extensionsDir))
                     {
                         var extensionDirs = Directory.GetDirectories(extensionsDir, "*DualSenseBattery*");
                         foreach (var extDir in extensionDirs)
                         {
-                            possiblePaths.Add(Path.Combine(extDir, "Helper", "DualSenseBatteryHelper.exe"));
+                            possiblePaths.Add(System.IO.Path.Combine(extDir, "Helper", "DualSenseBatteryHelper.exe"));
                         }
                     }
                 }
@@ -910,7 +910,7 @@ namespace DualSenseBattery
                     RedirectStandardError = true,
                     CreateNoWindow = true,
                     WindowStyle = ProcessWindowStyle.Hidden,
-                    WorkingDirectory = Path.GetDirectoryName(helperPath)
+                    WorkingDirectory = System.IO.Path.GetDirectoryName(helperPath)
                 };
 
                 using (var process = Process.Start(startInfo))
