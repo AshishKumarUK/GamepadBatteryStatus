@@ -31,8 +31,7 @@ namespace DualSenseBattery
             try
             {
                 // Immediate logging to verify plugin loading
-                System.Diagnostics.Debug.WriteLine("[DualSenseBattery] Plugin constructor called");
-                System.Console.WriteLine("[DualSenseBattery] Plugin constructor called");
+                PlayniteApi.Notifications.Add(new NotificationMessage("DualSenseBattery", "Plugin constructor called", NotificationType.Info));
                 
                 // Keep the original custom element support for backward compatibility
                 AddCustomElementSupport(new AddCustomElementSupportArgs
@@ -48,13 +47,11 @@ namespace DualSenseBattery
                     ElementList = new List<string> { "SystemBatteryReplacement", "AutoSystemBatteryReplacement" }
                 });
                 
-                System.Diagnostics.Debug.WriteLine("[DualSenseBattery] Plugin constructor completed");
-                System.Console.WriteLine("[DualSenseBattery] Plugin constructor completed");
+                PlayniteApi.Notifications.Add(new NotificationMessage("DualSenseBattery", "Plugin constructor completed", NotificationType.Info));
             }
             catch (Exception ex)
             {
-                System.Diagnostics.Debug.WriteLine($"[DualSenseBattery] Error in constructor: {ex.Message}");
-                System.Console.WriteLine($"[DualSenseBattery] Error in constructor: {ex.Message}");
+                PlayniteApi.Notifications.Add(new NotificationMessage("DualSenseBattery", $"Error in constructor: {ex.Message}", NotificationType.Error));
             }
         }
 
@@ -62,30 +59,25 @@ namespace DualSenseBattery
         {
             try
             {
-                System.Diagnostics.Debug.WriteLine("[DualSenseBattery] OnApplicationStarted called");
-                System.Console.WriteLine("[DualSenseBattery] OnApplicationStarted called");
+                PlayniteApi.Notifications.Add(new NotificationMessage("DualSenseBattery", "OnApplicationStarted called", NotificationType.Info));
                 
                 base.OnApplicationStarted(args);
                 
-                System.Diagnostics.Debug.WriteLine("[DualSenseBattery] Creating FullscreenOverlayManager");
-                System.Console.WriteLine("[DualSenseBattery] Creating FullscreenOverlayManager");
+                PlayniteApi.Notifications.Add(new NotificationMessage("DualSenseBattery", "Creating FullscreenOverlayManager", NotificationType.Info));
                 
-                overlayManager = new FullscreenOverlayManager();
+                overlayManager = new FullscreenOverlayManager(PlayniteApi);
                 
-                System.Diagnostics.Debug.WriteLine("[DualSenseBattery] Starting FullscreenOverlayManager");
-                System.Console.WriteLine("[DualSenseBattery] Starting FullscreenOverlayManager");
+                PlayniteApi.Notifications.Add(new NotificationMessage("DualSenseBattery", "Starting FullscreenOverlayManager", NotificationType.Info));
                 
                 overlayManager.Start();
                 
-                System.Diagnostics.Debug.WriteLine("[DualSenseBattery] OnApplicationStarted completed");
-                System.Console.WriteLine("[DualSenseBattery] OnApplicationStarted completed");
+                PlayniteApi.Notifications.Add(new NotificationMessage("DualSenseBattery", "OnApplicationStarted completed", NotificationType.Info));
             }
             catch (Exception ex)
             {
                 try
                 {
-                    System.Diagnostics.Debug.WriteLine($"[DualSenseBattery] Error in OnApplicationStarted: {ex.Message}");
-                    System.Console.WriteLine($"[DualSenseBattery] Error in OnApplicationStarted: {ex.Message}");
+                    PlayniteApi.Notifications.Add(new NotificationMessage("DualSenseBattery", $"Error in OnApplicationStarted: {ex.Message}", NotificationType.Error));
                 }
                 catch
                 {
@@ -274,14 +266,13 @@ namespace DualSenseBattery
         private PowerStatusBindingProxy bindingProxy;
         private bool isDisposed = false;
 
-        public FullscreenOverlayManager()
+        public FullscreenOverlayManager(IPlayniteAPI playniteApi)
         {
             try
             {
-                System.Diagnostics.Debug.WriteLine("[DualSenseBattery] FullscreenOverlayManager constructor called");
-                System.Console.WriteLine("[DualSenseBattery] FullscreenOverlayManager constructor called");
+                playniteApi.Notifications.Add(new NotificationMessage("DualSenseBattery", "FullscreenOverlayManager constructor called", NotificationType.Info));
                 
-                dualSenseStatus = new DualSensePowerStatus();
+                dualSenseStatus = new DualSensePowerStatus(playniteApi);
                 deviceManager = new DeviceNotificationManager(dualSenseStatus);
                 bindingProxy = new PowerStatusBindingProxy(dualSenseStatus);
 
@@ -291,13 +282,11 @@ namespace DualSenseBattery
                 };
                 timer.Tick += Timer_Tick;
                 
-                System.Diagnostics.Debug.WriteLine("[DualSenseBattery] FullscreenOverlayManager constructor completed");
-                System.Console.WriteLine("[DualSenseBattery] FullscreenOverlayManager constructor completed");
+                playniteApi.Notifications.Add(new NotificationMessage("DualSenseBattery", "FullscreenOverlayManager constructor completed", NotificationType.Info));
             }
             catch (Exception ex)
             {
-                System.Diagnostics.Debug.WriteLine($"[DualSenseBattery] Error creating FullscreenOverlayManager: {ex.Message}");
-                System.Console.WriteLine($"[DualSenseBattery] Error creating FullscreenOverlayManager: {ex.Message}");
+                playniteApi.Notifications.Add(new NotificationMessage("DualSenseBattery", $"Error creating FullscreenOverlayManager: {ex.Message}", NotificationType.Error));
             }
         }
 
@@ -596,6 +585,7 @@ namespace DualSenseBattery
         private CancellationTokenSource _cancellationTokenSource;
         private Task _pollingTask;
         private bool _isDisposed = false;
+        private readonly IPlayniteAPI _playniteApi;
 
         private int _percentCharge = 0;
         private bool _isCharging = false;
@@ -679,28 +669,25 @@ namespace DualSenseBattery
             }
         }
 
-        public DualSensePowerStatus()
+        public DualSensePowerStatus(IPlayniteAPI playniteApi)
         {
             try
             {
-                System.Diagnostics.Debug.WriteLine($"[DualSenseBattery] DualSensePowerStatus constructor called");
-                System.Console.WriteLine($"[DualSenseBattery] DualSensePowerStatus constructor called");
+                playniteApi.Notifications.Add(new NotificationMessage("DualSenseBattery", "DualSensePowerStatus constructor called", NotificationType.Info));
                 
                 _cancellationTokenSource = new CancellationTokenSource();
+                _playniteApi = playniteApi;
                 
                 // Test helper communication immediately
-                System.Diagnostics.Debug.WriteLine($"[DualSenseBattery] Testing helper communication...");
-                System.Console.WriteLine($"[DualSenseBattery] Testing helper communication...");
-                TestHelperCommunication();
+                playniteApi.Notifications.Add(new NotificationMessage("DualSenseBattery", "Testing helper communication...", NotificationType.Info));
+                TestHelperCommunication(playniteApi);
                 
                 StartWatcher();
-                System.Diagnostics.Debug.WriteLine($"[DualSenseBattery] DualSensePowerStatus constructor completed");
-                System.Console.WriteLine($"[DualSenseBattery] DualSensePowerStatus constructor completed");
+                playniteApi.Notifications.Add(new NotificationMessage("DualSenseBattery", "DualSensePowerStatus constructor completed", NotificationType.Info));
             }
             catch (Exception ex)
             {
-                System.Diagnostics.Debug.WriteLine($"[DualSenseBattery] Error in DualSensePowerStatus constructor: {ex.Message}");
-                System.Console.WriteLine($"[DualSenseBattery] Error in DualSensePowerStatus constructor: {ex.Message}");
+                playniteApi.Notifications.Add(new NotificationMessage("DualSenseBattery", $"Error in DualSensePowerStatus constructor: {ex.Message}", NotificationType.Error));
             }
         }
 
@@ -711,51 +698,47 @@ namespace DualSenseBattery
         {
             try
             {
-                Debug.WriteLine($"[DualSenseBattery] ForceCheck called");
+                _playniteApi.Notifications.Add(new NotificationMessage("DualSenseBattery", "ForceCheck called", NotificationType.Info));
                 var reading = GetDualSenseReading();
                 if (reading != null)
                 {
-                    Debug.WriteLine($"[DualSenseBattery] Got reading: Connected={reading.Connected}, Level={reading.Level}, Charging={reading.Charging}");
+                    _playniteApi.Notifications.Add(new NotificationMessage("DualSenseBattery", $"Got reading: Connected={reading.Connected}, Level={reading.Level}, Charging={reading.Charging}", NotificationType.Info));
                     ApplyReading(reading);
                 }
                 else
                 {
-                    Debug.WriteLine($"[DualSenseBattery] No reading returned, treating as disconnected");
+                    _playniteApi.Notifications.Add(new NotificationMessage("DualSenseBattery", "No reading returned, treating as disconnected", NotificationType.Warning));
                     // No reading means disconnected
                     ApplyReading(new BatteryReading { Connected = false, Level = 0, Charging = false });
                 }
             }
             catch (Exception ex)
             {
-                Debug.WriteLine($"[DualSenseBattery] Error in ForceCheck: {ex.Message}");
+                _playniteApi.Notifications.Add(new NotificationMessage("DualSenseBattery", $"Error in ForceCheck: {ex.Message}", NotificationType.Error));
             }
         }
 
         /// <summary>
         /// Test method to verify helper communication
         /// </summary>
-        public void TestHelperCommunication()
+        public void TestHelperCommunication(IPlayniteAPI playniteApi)
         {
             try
             {
-                System.Diagnostics.Debug.WriteLine($"[DualSenseBattery] Testing helper communication...");
-                System.Console.WriteLine($"[DualSenseBattery] Testing helper communication...");
+                playniteApi.Notifications.Add(new NotificationMessage("DualSenseBattery", "Testing helper communication...", NotificationType.Info));
                 var reading = GetDualSenseReading();
                 if (reading != null)
                 {
-                    System.Diagnostics.Debug.WriteLine($"[DualSenseBattery] TEST SUCCESS: Connected={reading.Connected}, Level={reading.Level}, Charging={reading.Charging}");
-                    System.Console.WriteLine($"[DualSenseBattery] TEST SUCCESS: Connected={reading.Connected}, Level={reading.Level}, Charging={reading.Charging}");
+                    playniteApi.Notifications.Add(new NotificationMessage("DualSenseBattery", $"TEST SUCCESS: Connected={reading.Connected}, Level={reading.Level}, Charging={reading.Charging}", NotificationType.Success));
                 }
                 else
                 {
-                    System.Diagnostics.Debug.WriteLine($"[DualSenseBattery] TEST FAILED: No reading returned");
-                    System.Console.WriteLine($"[DualSenseBattery] TEST FAILED: No reading returned");
+                    playniteApi.Notifications.Add(new NotificationMessage("DualSenseBattery", "TEST FAILED: No reading returned", NotificationType.Error));
                 }
             }
             catch (Exception ex)
             {
-                System.Diagnostics.Debug.WriteLine($"[DualSenseBattery] TEST ERROR: {ex.Message}");
-                System.Console.WriteLine($"[DualSenseBattery] TEST ERROR: {ex.Message}");
+                playniteApi.Notifications.Add(new NotificationMessage("DualSenseBattery", $"TEST ERROR: {ex.Message}", NotificationType.Error));
             }
         }
 
@@ -941,13 +924,15 @@ namespace DualSenseBattery
                 
                 if (string.IsNullOrEmpty(helperPath))
                 {
-                    Debug.WriteLine($"[DualSenseBattery] Helper not found. Searched paths:");
+                    _playniteApi.Notifications.Add(new NotificationMessage("DualSenseBattery", "Helper not found. Searched paths:", NotificationType.Error));
                     foreach (var path in possiblePaths)
                     {
-                        Debug.WriteLine($"[DualSenseBattery]   - {path}");
+                        _playniteApi.Notifications.Add(new NotificationMessage("DualSenseBattery", $"  - {path}", NotificationType.Error));
                     }
                     return null;
                 }
+
+                _playniteApi.Notifications.Add(new NotificationMessage("DualSenseBattery", $"Found helper at: {helperPath}", NotificationType.Info));
 
                 var startInfo = new ProcessStartInfo
                 {
@@ -970,23 +955,23 @@ namespace DualSenseBattery
                     if (!process.WaitForExit(5000)) // 5 second timeout
                     {
                         try { process.Kill(); } catch { }
-                        Debug.WriteLine($"[DualSenseBattery] Helper timeout. Output: {output}, Error: {error}");
+                        _playniteApi.Notifications.Add(new NotificationMessage("DualSenseBattery", $"Helper timeout. Output: {output}, Error: {error}", NotificationType.Error));
                         return null;
                     }
 
                     if (process.ExitCode != 0)
                     {
-                        Debug.WriteLine($"[DualSenseBattery] Helper error (ExitCode: {process.ExitCode}): {error}");
+                        _playniteApi.Notifications.Add(new NotificationMessage("DualSenseBattery", $"Helper error (ExitCode: {process.ExitCode}): {error}", NotificationType.Error));
                         return null;
                     }
 
                     if (string.IsNullOrWhiteSpace(output))
                     {
-                        Debug.WriteLine($"[DualSenseBattery] Helper returned empty output. Error: {error}");
+                        _playniteApi.Notifications.Add(new NotificationMessage("DualSenseBattery", $"Helper returned empty output. Error: {error}", NotificationType.Error));
                         return null;
                     }
 
-                    Debug.WriteLine($"[DualSenseBattery] Helper output: {output}");
+                    _playniteApi.Notifications.Add(new NotificationMessage("DualSenseBattery", $"Helper output: {output}", NotificationType.Info));
 
                     try
                     {
@@ -994,13 +979,13 @@ namespace DualSenseBattery
                         var reading = ParseJsonReading(output);
                         if (reading != null)
                         {
-                            Debug.WriteLine($"[DualSenseBattery] Parsed reading: Connected={reading.Connected}, Level={reading.Level}, Charging={reading.Charging}");
+                            _playniteApi.Notifications.Add(new NotificationMessage("DualSenseBattery", $"Parsed reading: Connected={reading.Connected}, Level={reading.Level}, Charging={reading.Charging}", NotificationType.Info));
                         }
                         return reading;
                     }
                     catch (Exception ex)
                     {
-                        Debug.WriteLine($"[DualSenseBattery] JSON parse error: {ex.Message}, Output: {output}");
+                        _playniteApi.Notifications.Add(new NotificationMessage("DualSenseBattery", $"JSON parse error: {ex.Message}, Output: {output}", NotificationType.Error));
                         return null;
                     }
                 }
