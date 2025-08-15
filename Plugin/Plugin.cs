@@ -120,6 +120,10 @@ namespace DualSenseBattery
 		private PowerStatusBindingProxy bindingProxy;
 		private DualSensePowerStatus dualSenseStatus;
         private readonly object _elementLock = new object(); // Thread safety for UI elements
+        
+        // Re-detection mechanism
+        private int tickCount = 0;
+        private const int REDETECTION_INTERVAL = 30; // Force re-detection every 30 seconds
 
         public void Start()
         {
@@ -159,6 +163,18 @@ namespace DualSenseBattery
         {
             try
             {
+                // Periodic re-detection for better responsiveness
+                tickCount++;
+                if (tickCount >= REDETECTION_INTERVAL)
+                {
+                    tickCount = 0;
+                    try
+                    {
+                        dualSenseStatus?.ForceRedetection();
+                    }
+                    catch (Exception ex) { LogError("ForceRedetection", ex); }
+                }
+
                 var main = Application.Current?.MainWindow;
                 if (main == null)
                 {
@@ -573,7 +589,7 @@ namespace DualSenseBattery
         private int currentPollInterval = INITIAL_DETECTION_INTERVAL;
         
         // Fast initial connection detection
-        private DateTime lastConnectionTime = DateTime.MinValue;
+        private DateTime lastConnectionTime = DateTime.Now; // Start with current time
         private bool isInInitialDetectionMode = true;
 
         private int _percentCharge = 0;
@@ -735,6 +751,25 @@ namespace DualSenseBattery
                                             ApplyReading(reading);
                                         }
                                     }
+                                    else
+                                    {
+                                        // No reading returned - treat as disconnected
+                                        var disconnectedReading = new BatteryReading { Connected = false };
+                                        if (dispatcher != null)
+                                        {
+                                            try { dispatcher.Invoke(() => ApplyReading(disconnectedReading)); } 
+                                            catch (Exception ex) { LogError("DispatcherInvoke", ex); }
+                                        }
+                                        else if (context != null)
+                                        {
+                                            try { context.Post((a) => ApplyReading(disconnectedReading), null); } 
+                                            catch (Exception ex) { LogError("ContextPost", ex); }
+                                        }
+                                        else
+                                        {
+                                            ApplyReading(disconnectedReading);
+                                        }
+                                    }
                                 }
                                 catch (Exception ex)
                                 {
@@ -851,6 +886,7 @@ namespace DualSenseBattery
 
         private void ApplyReading(BatteryReading r)
         {
+            bool wasConnected = IsBatteryAvailable;
             IsBatteryAvailable = r.Connected;
             
             if (r.Connected)
@@ -868,11 +904,15 @@ namespace DualSenseBattery
                     int newInterval = r.Charging ? FAST_POLL_INTERVAL : NORMAL_POLL_INTERVAL;
                     lock (_pollingLock)
                     {
-                        if (newInterval != currentPollInterval)
-                        {
-                            currentPollInterval = newInterval;
-                        }
+                        currentPollInterval = newInterval;
                     }
+                    return;
+                }
+                
+                // If we were disconnected and now connected, reset detection state for better responsiveness
+                if (!wasConnected)
+                {
+                    ResetDetectionState();
                     return;
                 }
                 
@@ -900,30 +940,19 @@ namespace DualSenseBattery
                         isInInitialDetectionMode = false;
                         lock (_pollingLock)
                         {
-                            currentPollInterval = SLOW_POLL_INTERVAL;
+                            currentPollInterval = RAPID_RETRY_INTERVAL; // Use rapid polling instead of slow
                         }
                     }
                     return;
                 }
                 
-                // Brief rapid probe window after disconnect for quicker re-connect detection
+                // When disconnected, use rapid polling for quick reconnection detection
                 lock (_pollingLock)
                 {
-                    if (currentPollInterval != RAPID_RETRY_INTERVAL && currentPollInterval != SLOW_POLL_INTERVAL)
+                    // Always use rapid polling when disconnected to detect reconnection quickly
+                    if (currentPollInterval != RAPID_RETRY_INTERVAL)
                     {
                         currentPollInterval = RAPID_RETRY_INTERVAL;
-                        return;
-                    }
-
-                    // After rapid probe duration, fall back to slow polling
-                    if (currentPollInterval == RAPID_RETRY_INTERVAL)
-                    {
-                        // Use lastConnectionTime as baseline for rapid retry timing
-                        var since = DateTime.Now - lastConnectionTime;
-                        if (since.TotalMilliseconds >= RAPID_RETRY_DURATION)
-                        {
-                            currentPollInterval = SLOW_POLL_INTERVAL;
-                        }
                     }
                 }
             }
@@ -1000,6 +1029,35 @@ namespace DualSenseBattery
         public void Dispose()
         {
             StopWatcher();
+        }
+
+        /// <summary>
+        /// Resets the detection state to handle reconnection scenarios
+        /// </summary>
+        private void ResetDetectionState()
+        {
+            lock (_pollingLock)
+            {
+                isInInitialDetectionMode = true;
+                lastConnectionTime = DateTime.Now;
+                currentPollInterval = INITIAL_DETECTION_INTERVAL;
+            }
+        }
+
+        /// <summary>
+        /// Forces a re-detection cycle for better responsiveness
+        /// </summary>
+        public void ForceRedetection()
+        {
+            try
+            {
+                ResetDetectionState();
+                StartWatcher(); // Restart with new detection state
+            }
+            catch (Exception ex)
+            {
+                LogError("ForceRedetection", ex);
+            }
         }
 
         public event PropertyChangedEventHandler PropertyChanged;
