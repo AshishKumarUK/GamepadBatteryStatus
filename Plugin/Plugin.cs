@@ -123,7 +123,8 @@ namespace DualSenseBattery
         
         // Re-detection mechanism
         private int tickCount = 0;
-        private const int REDETECTION_INTERVAL = 10; // Force re-detection every 10 seconds
+        private const int REDETECTION_INTERVAL = 3; // Force re-detection every 3 seconds
+        private const int INITIAL_REDETECTION_INTERVAL = 1; // Force re-detection every 1 second during initial detection
 
         public void Start()
         {
@@ -159,13 +160,18 @@ namespace DualSenseBattery
             }
         }
 
-		private void Timer_Tick(object sender, EventArgs e)
+		        private void Timer_Tick(object sender, EventArgs e)
         {
             try
             {
                 // Periodic re-detection for better responsiveness
                 tickCount++;
-                if (tickCount >= REDETECTION_INTERVAL)
+                
+                // Use more aggressive re-detection during initial detection mode
+                int currentRedetectionInterval = dualSenseStatus?.IsInInitialDetectionMode == true ? 
+                    INITIAL_REDETECTION_INTERVAL : REDETECTION_INTERVAL;
+                
+                if (tickCount >= currentRedetectionInterval)
                 {
                     tickCount = 0;
                     try
@@ -582,16 +588,22 @@ namespace DualSenseBattery
         private const int NORMAL_POLL_INTERVAL = 5000;   // 5 seconds - connected (discharging)
         private const int FAST_POLL_INTERVAL = 3000;    // 3 seconds - connected (charging)
         private const int SLOW_POLL_INTERVAL = 1000;    // 1 second - disconnected
-        private const int INITIAL_DETECTION_INTERVAL = 500; // 0.5 seconds - very fast initial detection
-        private const int INITIAL_DETECTION_DURATION = 60000; // 60 seconds - initial fast window
-        private const int RAPID_RETRY_INTERVAL = 500; // 0.5 seconds - very fast reconnection detection
+        private const int INITIAL_DETECTION_INTERVAL = 250; // 0.25 seconds - ultra fast initial detection
+        private const int INITIAL_DETECTION_DURATION = 300000; // 5 minutes - much longer initial detection window
+        private const int RAPID_RETRY_INTERVAL = 250; // 0.25 seconds - ultra fast reconnection detection
         private const int RAPID_RETRY_DURATION = 5000; // 5 seconds - rapid probe window
+        private const int CONFIRMATION_POLL_INTERVAL = 1000; // 1 second - confirmation polling after reconnection
+        private const int CONFIRMATION_DURATION = 10000; // 10 seconds - confirmation window
         private int currentPollInterval = INITIAL_DETECTION_INTERVAL;
         
         // Fast initial connection detection
         private DateTime lastConnectionTime = DateTime.Now; // Start with current time
         private bool isInInitialDetectionMode = true;
         private DateTime lastDisconnectTime = DateTime.Now; // Track disconnect time for aggressive re-detection
+        private DateTime lastReconnectionTime = DateTime.MinValue; // Track reconnection time for confirmation
+        private bool isInConfirmationMode = false; // Track if we're in confirmation mode after reconnection
+        private int consecutiveConnections = 0; // Track consecutive successful connections
+        private int consecutiveDisconnections = 0; // Track consecutive disconnections
 
         private int _percentCharge = 0;
         private bool _isCharging = false;
@@ -672,6 +684,14 @@ namespace DualSenseBattery
                         OnPropertyChanged();
                     }
                 }
+            }
+        }
+
+        public bool IsInInitialDetectionMode
+        {
+            get 
+            { 
+                lock (_pollingLock) return isInInitialDetectionMode; 
             }
         }
 
@@ -901,19 +921,41 @@ namespace DualSenseBattery
                 PercentCharge = r.Level;
                 IsCharging = r.Charging;
                 
-                // Update connection time for fast detection mode
+                // Update connection tracking
                 lastConnectionTime = DateTime.Now;
+                consecutiveConnections++;
+                consecutiveDisconnections = 0;
                 
-                // If we were disconnected and now connected, immediately switch to normal polling
+                // If we were disconnected and now connected, this is a reconnection
                 if (!wasConnected)
                 {
+                    lastReconnectionTime = DateTime.Now;
+                    isInConfirmationMode = true;
                     isInInitialDetectionMode = false;
-                    int newInterval = r.Charging ? FAST_POLL_INTERVAL : NORMAL_POLL_INTERVAL;
+                    
+                    // Use confirmation polling for a short period to ensure stable connection
                     lock (_pollingLock)
                     {
-                        currentPollInterval = newInterval;
+                        currentPollInterval = CONFIRMATION_POLL_INTERVAL;
                     }
                     return;
+                }
+                
+                // If we're in confirmation mode, check if we should switch to normal polling
+                if (isInConfirmationMode)
+                {
+                    var timeSinceReconnection = DateTime.Now - lastReconnectionTime;
+                    if (timeSinceReconnection.TotalMilliseconds > CONFIRMATION_DURATION)
+                    {
+                        isInConfirmationMode = false;
+                        int newInterval = r.Charging ? FAST_POLL_INTERVAL : NORMAL_POLL_INTERVAL;
+                        lock (_pollingLock)
+                        {
+                            currentPollInterval = newInterval;
+                        }
+                        return;
+                    }
+                    return; // Stay in confirmation mode
                 }
                 
                 // If we're in initial detection mode and found a connection, switch to normal polling
@@ -943,13 +985,18 @@ namespace DualSenseBattery
                 PercentCharge = 0;
                 IsCharging = false;
                 
+                // Update disconnection tracking
+                consecutiveDisconnections++;
+                consecutiveConnections = 0;
+                
                 // Track disconnect time for aggressive re-detection
                 if (wasConnected)
                 {
                     lastDisconnectTime = DateTime.Now;
+                    isInConfirmationMode = false; // Exit confirmation mode on disconnect
                 }
                 
-                // If we're in initial detection mode, check if we should exit it
+                // If we're in initial detection mode, stay in rapid polling for much longer
                 if (isInInitialDetectionMode)
                 {
                     var timeSinceStart = DateTime.Now - lastConnectionTime;
@@ -961,10 +1008,21 @@ namespace DualSenseBattery
                             currentPollInterval = RAPID_RETRY_INTERVAL; // Use rapid polling instead of slow
                         }
                     }
+                    else
+                    {
+                        // Stay in rapid polling during initial detection
+                        lock (_pollingLock)
+                        {
+                            if (currentPollInterval != INITIAL_DETECTION_INTERVAL)
+                            {
+                                currentPollInterval = INITIAL_DETECTION_INTERVAL;
+                            }
+                        }
+                    }
                     return;
                 }
                 
-                // When disconnected, use rapid polling for quick reconnection detection
+                // When disconnected, always use rapid polling for quick reconnection detection
                 lock (_pollingLock)
                 {
                     // Always use rapid polling when disconnected to detect reconnection quickly
@@ -1057,7 +1115,11 @@ namespace DualSenseBattery
             lock (_pollingLock)
             {
                 isInInitialDetectionMode = true;
+                isInConfirmationMode = false;
                 lastConnectionTime = DateTime.Now;
+                lastReconnectionTime = DateTime.MinValue;
+                consecutiveConnections = 0;
+                consecutiveDisconnections = 0;
                 currentPollInterval = RAPID_RETRY_INTERVAL; // Use rapid polling for re-detection
             }
         }
@@ -1079,14 +1141,21 @@ namespace DualSenseBattery
         }
 
         /// <summary>
-        /// Checks if we should force re-detection based on disconnect duration
+        /// Checks if we should force re-detection based on disconnect duration and consecutive failures
         /// </summary>
         private bool ShouldForceRedetection()
         {
             if (IsBatteryAvailable) return false; // Don't force if connected
             
             var disconnectDuration = DateTime.Now - lastDisconnectTime;
-            return disconnectDuration.TotalSeconds > 5; // Force re-detection after 5 seconds of disconnect
+            
+            // Force re-detection if:
+            // 1. Disconnected for more than 2 seconds, OR
+            // 2. We've had many consecutive disconnections (indicating potential detection issues), OR
+            // 3. We're in initial detection mode and haven't found a controller yet
+            return disconnectDuration.TotalSeconds > 2 || 
+                   consecutiveDisconnections > 5 || 
+                   (isInInitialDetectionMode && consecutiveDisconnections > 0);
         }
 
         public event PropertyChangedEventHandler PropertyChanged;

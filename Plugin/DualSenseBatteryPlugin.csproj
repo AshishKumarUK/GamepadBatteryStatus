@@ -15,9 +15,16 @@
   <ItemGroup>
     <Content Include="icon.png">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <IncludeInSingleFile>false</IncludeInSingleFile>
     </Content>
     <Content Include="extension.yaml">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <IncludeInSingleFile>false</IncludeInSingleFile>
     </Content>
+  </ItemGroup>
+  
+  <!-- Ensure icon is treated as a resource -->
+  <ItemGroup>
+    <Resource Include="icon.png" />
   </ItemGroup>
 </Project>
