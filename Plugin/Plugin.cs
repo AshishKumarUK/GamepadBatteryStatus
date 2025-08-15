@@ -16,6 +16,7 @@ using System.Windows.Media;
 using System.Windows.Data;
 using System.Runtime.InteropServices;
 using System.Text;
+using System.Globalization;
 
 namespace DualSenseBattery
 {
@@ -312,13 +313,53 @@ namespace DualSenseBattery
                         // For TextBlock elements, explicitly bind the text to our battery percentage
                         if (element is TextBlock textBlock)
                         {
-                            var binding = new Binding("BatteryPercent")
+                            // Clear any existing bindings
+                            textBlock.ClearValue(TextBlock.TextProperty);
+                            
+                            var binding = new Binding("BatteryPercentageText")
                             {
                                 Source = bindingProxy,
-                                StringFormat = "{0}%",
-                                Mode = BindingMode.OneWay
+                                Mode = BindingMode.OneWay,
+                                UpdateSourceTrigger = UpdateSourceTrigger.PropertyChanged
                             };
                             textBlock.SetBinding(TextBlock.TextProperty, binding);
+                            
+                            Debug.WriteLine($"[DualSenseBattery] Bound TextBlock {element.Name} to BatteryPercentageText: {bindingProxy.BatteryPercentageText}");
+                        }
+                        
+                        // For ProgressBar elements, bind to our battery percentage
+                        if (element is ProgressBar progressBar)
+                        {
+                            // Clear any existing bindings
+                            progressBar.ClearValue(ProgressBar.ValueProperty);
+                            
+                            var binding = new Binding("BatteryPercentage")
+                            {
+                                Source = bindingProxy,
+                                Mode = BindingMode.OneWay,
+                                UpdateSourceTrigger = UpdateSourceTrigger.PropertyChanged
+                            };
+                            progressBar.SetBinding(ProgressBar.ValueProperty, binding);
+                            
+                            Debug.WriteLine($"[DualSenseBattery] Bound ProgressBar {element.Name} to BatteryPercentage: {bindingProxy.BatteryPercentage}");
+                        }
+                        
+                        // For Rectangle elements (battery fill), bind to our battery percentage
+                        if (element is Rectangle rectangle)
+                        {
+                            // Clear any existing bindings
+                            rectangle.ClearValue(Rectangle.WidthProperty);
+                            
+                            var binding = new Binding("BatteryPercentage")
+                            {
+                                Source = bindingProxy,
+                                Mode = BindingMode.OneWay,
+                                UpdateSourceTrigger = UpdateSourceTrigger.PropertyChanged,
+                                Converter = new BatteryPercentageToWidthConverter()
+                            };
+                            rectangle.SetBinding(Rectangle.WidthProperty, binding);
+                            
+                            Debug.WriteLine($"[DualSenseBattery] Bound Rectangle {element.Name} to BatteryPercentage: {bindingProxy.BatteryPercentage}");
                         }
                         
                         // Control visibility based on controller connection and theme settings
@@ -480,6 +521,19 @@ namespace DualSenseBattery
         public bool IsPluggedIn => powerStatus.IsCharging;
         public int BatteryLevel => powerStatus.PercentCharge;
 
+        // Additional system battery override properties
+        public bool IsOnBatteryPower => !powerStatus.IsCharging && powerStatus.IsBatteryAvailable;
+        public bool IsOnACPower => powerStatus.IsCharging;
+        public double BatteryPercentage => powerStatus.PercentCharge;
+        public string BatteryPercentageText => $"{powerStatus.PercentCharge}%";
+        public bool ShowBatteryStatus => powerStatus.IsBatteryAvailable;
+        public bool ShowBatteryPercentage => powerStatus.IsBatteryAvailable;
+
+        // Power status properties that themes might expect
+        public bool PowerStatusAvailable => powerStatus.IsBatteryAvailable;
+        public int PowerStatusLevel => powerStatus.PercentCharge;
+        public bool PowerStatusCharging => powerStatus.IsCharging;
+
         public event PropertyChangedEventHandler PropertyChanged;
         protected virtual void OnPropertyChanged([CallerMemberName] string propertyName = null)
         {
@@ -593,6 +647,10 @@ namespace DualSenseBattery
             {
                 Debug.WriteLine($"[DualSenseBattery] DualSensePowerStatus constructor called");
                 _cancellationTokenSource = new CancellationTokenSource();
+                
+                // Test helper communication immediately
+                TestHelperCommunication();
+                
                 StartWatcher();
                 Debug.WriteLine($"[DualSenseBattery] DualSensePowerStatus constructor completed");
             }
@@ -626,6 +684,30 @@ namespace DualSenseBattery
             catch (Exception ex)
             {
                 Debug.WriteLine($"[DualSenseBattery] Error in ForceCheck: {ex.Message}");
+            }
+        }
+
+        /// <summary>
+        /// Test method to verify helper communication
+        /// </summary>
+        public void TestHelperCommunication()
+        {
+            try
+            {
+                Debug.WriteLine($"[DualSenseBattery] Testing helper communication...");
+                var reading = GetDualSenseReading();
+                if (reading != null)
+                {
+                    Debug.WriteLine($"[DualSenseBattery] TEST SUCCESS: Connected={reading.Connected}, Level={reading.Level}, Charging={reading.Charging}");
+                }
+                else
+                {
+                    Debug.WriteLine($"[DualSenseBattery] TEST FAILED: No reading returned");
+                }
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"[DualSenseBattery] TEST ERROR: {ex.Message}");
             }
         }
 
@@ -745,20 +827,23 @@ namespace DualSenseBattery
                 // Try multiple possible helper paths
                 var possiblePaths = new List<string>();
                 
-                // Path 1: Relative to plugin DLL (current approach)
+                // Path 1: Direct path based on user's setup
+                possiblePaths.Add(@"C:\Games\Playnite\Extensions\DualSenseBattery_fbd2c2e6-9c1b-49b6-9c0d-1c5d3c0a9a6a\Helper\DualSenseBatteryHelper.exe");
+                
+                // Path 2: Relative to plugin DLL (current approach)
                 var pluginDir = Path.GetDirectoryName(typeof(PluginImpl).Assembly.Location);
                 if (!string.IsNullOrEmpty(pluginDir))
                 {
                     possiblePaths.Add(Path.Combine(pluginDir, "Helper", "DualSenseBatteryHelper.exe"));
                 }
                 
-                // Path 2: Look for the helper in the same directory as the plugin DLL
+                // Path 3: Look for the helper in the same directory as the plugin DLL
                 if (!string.IsNullOrEmpty(pluginDir))
                 {
                     possiblePaths.Add(Path.Combine(pluginDir, "DualSenseBatteryHelper.exe"));
                 }
                 
-                // Path 3: Look in the Playnite extensions directory structure
+                // Path 4: Look in the Playnite extensions directory structure
                 var playniteDir = Environment.GetEnvironmentVariable("PLAYNITE_DIR");
                 if (string.IsNullOrEmpty(playniteDir))
                 {
@@ -949,6 +1034,27 @@ namespace DualSenseBattery
             {
                 Debug.WriteLine($"[DualSenseBattery] Error disposing DualSensePowerStatus: {ex.Message}");
             }
+        }
+    }
+
+    /// <summary>
+    /// Converts battery percentage to width for Rectangle elements
+    /// </summary>
+    public class BatteryPercentageToWidthConverter : IValueConverter
+    {
+        public object Convert(object value, Type targetType, object parameter, CultureInfo culture)
+        {
+            if (value is double percentage)
+            {
+                // Convert percentage (0-100) to width (0-100)
+                return Math.Max(0, Math.Min(100, percentage));
+            }
+            return 0.0;
+        }
+
+        public object ConvertBack(object value, Type targetType, object parameter, CultureInfo culture)
+        {
+            throw new NotImplementedException();
         }
     }
 
